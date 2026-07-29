@@ -25,11 +25,28 @@ export async function executeLeaderboard(interaction: ChatInputCommandInteractio
       return;
     }
 
-    const lines = entries.map((entry, i) => {
-      const trophy = TROPHY[i] ?? `\`#${i + 1}\``;
+    const topThreeEmojis = ['🥇', '🥈', '🥉'];
+    const lines: string[] = [];
+
+    entries.forEach((entry, i) => {
       const views = Number(entry.view_count).toLocaleString();
       const type = entry.clip_type || 'Unknown';
-      return `${trophy} \`${entry.id}\` — **${entry.discord_username}** | ${type} | 👁 **${views}** views`;
+      const userMention = `<@${entry.user_id}>`;
+
+      if (i < 3) {
+        // Special highlighted format for top 3
+        const emoji = topThreeEmojis[i];
+        lines.push(
+          `${emoji} **#${i + 1}** • ${userMention} (\`${entry.id}\`)\n` +
+          `┗ 🎬 *${type}*  •  👁️ **${views}** views\n`
+        );
+      } else {
+        // Divider line between top 3 and runner-ups
+        if (i === 3) {
+          lines.push('⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n**Runner-Ups:**');
+        }
+        lines.push(`🎖️ **#${i + 1}** • ${userMention} (\`${entry.id}\`)  •  🎬 *${type}*  •  👁️ **${views}** views`);
+      }
     });
 
     const embed = new EmbedBuilder()
