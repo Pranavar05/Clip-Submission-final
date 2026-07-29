@@ -23,7 +23,7 @@ class SubmissionQueue {
     
     // Extract submission ID deterministically to prevent duplicates
     const subId = payload.submissionId || payload.submissionPayload?.submissionId;
-    const jobId = subId ? `${jobName}:${subId}` : `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const jobId = subId ? `${jobName}_${subId}` : `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
     if (bullQueue) {
       await bullQueue.add(jobName, payload, {
