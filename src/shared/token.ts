@@ -58,7 +58,7 @@ export async function decryptToken(token: string): Promise<PortalSessionPayload 
     }
 
     const rows = await query(
-      'SELECT * FROM upload_tokens WHERE token = $1 AND (used = false OR used = 0)',
+      'SELECT * FROM upload_tokens WHERE token = $1 AND used = false',
       [token]
     );
     
@@ -100,7 +100,7 @@ export async function consumeToken(token: string, clientQuery?: any): Promise<Po
     }
     const executeQuery = clientQuery || query;
     const rows = await executeQuery(
-      'SELECT * FROM upload_tokens WHERE token = $1 AND (used = false OR used = 0)',
+      'SELECT * FROM upload_tokens WHERE token = $1 AND used = false',
       [token]
     );
     
