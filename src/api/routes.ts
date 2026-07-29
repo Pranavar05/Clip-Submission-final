@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { handlePortalSession, handleWebSubmissionInit, handleWebSubmissionUpload, handleCreators } from './controllers.js';
+import { handleIncrementView, handleGetStats, handleGetLeaderboard } from './viewController.js';
 import { config } from '../shared/config.js';
 import { logger } from '../shared/logger.js';
 import { query } from '../shared/db.js';
@@ -51,6 +52,11 @@ router.post('/web-submissions/init', handleWebSubmissionInit);
 
 // Web Portal submission file upload
 router.post('/web-submissions/upload/:submissionId', handleWebSubmissionUpload);
+
+// View Tracking & Leaderboard
+router.post('/view/:id', handleIncrementView);
+router.get('/stats/:id', handleGetStats);
+router.get('/leaderboard', handleGetLeaderboard);
 
 // Health check endpoint (performs connections checks for Database, Airtable, R2, Discord client, and queue)
 router.get('/health', async (req: Request, res: Response) => {

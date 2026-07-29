@@ -28,6 +28,30 @@ client.once('ready', async () => {
         name: 'setup-portal',
         description: 'Deploys the Clip Submission Portal embed and button to this channel.',
         defaultMemberPermissions: PermissionFlagsBits.Administrator,
+      },
+      {
+        name: 'leaderboard',
+        description: 'Displays the clip leaderboard by view counts.',
+        options: [
+          {
+            name: 'limit',
+            description: 'Number of top clips to show (default 10, max 25)',
+            type: 4, // Integer type
+            required: false,
+          }
+        ]
+      },
+      {
+        name: 'stats',
+        description: 'Displays stats for a specific clip.',
+        options: [
+          {
+            name: 'id',
+            description: 'The submission ID of the clip (e.g., SUB-000001)',
+            type: 3, // String type
+            required: true,
+          }
+        ]
       }
     ];
 

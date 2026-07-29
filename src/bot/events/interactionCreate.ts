@@ -13,6 +13,8 @@ import { config } from '../../shared/config.js';
 import { encryptToken } from '../../shared/token.js';
 import { query } from '../../shared/db.js';
 import { executeSetupPortal } from '../commands/setup.js';
+import { executeLeaderboard } from '../commands/leaderboard.js';
+import { executeStats } from '../commands/stats.js';
 
 const TOKEN_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -22,6 +24,10 @@ export async function handleInteractionCreate(interaction: Interaction): Promise
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'setup-portal') {
         await executeSetupPortal(interaction);
+      } else if (interaction.commandName === 'leaderboard') {
+        await executeLeaderboard(interaction);
+      } else if (interaction.commandName === 'stats') {
+        await executeStats(interaction);
       }
       return;
     }

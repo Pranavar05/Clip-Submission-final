@@ -292,6 +292,55 @@ export class AirtableService {
   }
 
   /**
+   * Updates the Views field for a specific submission in Airtable.
+   */
+  static async updateSubmissionViews(submissionId: string, views: number): Promise<void> {
+    if (config.mockAirtable) {
+      logger.info(`[MOCK AIRTABLE] Simulating update views for ID: ${submissionId} to ${views}`);
+      return;
+    }
+
+    try {
+      const base = this.getBase();
+      
+      // Find the record by Submission ID
+      const findOp = () => new Promise<string | null>((resolve, reject) => {
+        base(config.airtable.submissionsTable)
+          .select({
+            filterByFormula: `{Submission ID} = '${submissionId}'`,
+            maxRecords: 1
+          })
+          .firstPage((err, records) => {
+            if (err) reject(err);
+            else resolve(records && records.length > 0 ? records[0].id : null);
+          });
+      });
+
+      const recordId = await this.executeWithRetry(findOp);
+      if (!recordId) {
+        logger.warn(`Could not update views in Airtable: Submission ID ${submissionId} not found.`);
+        return;
+      }
+
+      // Update the record with new view count
+      const updateOp = () => new Promise<void>((resolve, reject) => {
+        base(config.airtable.submissionsTable).update(
+          [{ id: recordId, fields: { 'Views': views } }],
+          (err) => {
+            if (err) reject(err);
+            else resolve();
+          }
+        );
+      });
+
+      await this.executeWithRetry(updateOp);
+      logger.info(`Successfully updated views in Airtable for Submission ID: ${submissionId} to ${views}`);
+    } catch (error: any) {
+      logger.error(`Failed to update views in Airtable for Submission ID ${submissionId}:`, error);
+    }
+  }
+
+  /**
    * Runs a cheap query to verify database connectivity.
    */
   static async testConnection(): Promise<boolean> {

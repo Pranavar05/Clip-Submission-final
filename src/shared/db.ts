@@ -162,6 +162,25 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_upload_tokens_expires_at ON upload_tokens(expires_at);
       CREATE INDEX IF NOT EXISTS idx_submissions_submitted_at ON submissions(submitted_at);
     `
+  },
+  {
+    name: '003_view_tracking',
+    pgSql: `
+      CREATE TABLE IF NOT EXISTS view_counts (
+        submission_id VARCHAR(50) PRIMARY KEY REFERENCES submissions(id) ON DELETE CASCADE,
+        count BIGINT DEFAULT 0,
+        last_viewed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_view_counts_count ON view_counts(count DESC);
+    `,
+    sqliteSql: `
+      CREATE TABLE IF NOT EXISTS view_counts (
+        submission_id TEXT PRIMARY KEY REFERENCES submissions(id) ON DELETE CASCADE,
+        count INTEGER DEFAULT 0,
+        last_viewed_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_view_counts_count ON view_counts(count DESC);
+    `
   }
 ];
 
