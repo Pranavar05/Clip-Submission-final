@@ -1,0 +1,45 @@
+{
+  "name": "discord-clip-submission-system",
+  "version": "1.0.0",
+  "description": "Scalable Discord Bot and REST API for video clip submissions",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "start:api": "node dist/api.js",
+    "start:bot": "node dist/bot.js",
+    "start:worker": "node dist/worker.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1095.0",
+    "@aws-sdk/lib-storage": "^3.1095.0",
+    "@aws-sdk/s3-request-presigner": "^3.1096.0",
+    "@sentry/node": "^10.68.0",
+    "airtable": "^0.12.2",
+    "axios": "^1.7.9",
+    "bullmq": "^5.81.2",
+    "busboy": "^1.6.0",
+    "cors": "^2.8.5",
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^8.3.0",
+    "ioredis": "^5.11.1",
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8.22.0",
+    "pino": "^10.3.1",
+    "winston": "^3.13.0"
+  },
+  "devDependencies": {
+    "@types/busboy": "^1.5.4",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/helmet": "^0.0.48",
+    "@types/multer": "^1.4.11",
+    "@types/node": "^26.1.1",
+    "@types/pg": "^8.20.0",
+    "tsx": "^4.15.7",
+    "typescript": "^5.5.2"
+  }
+}

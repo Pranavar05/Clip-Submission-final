@@ -1,0 +1,73 @@
+# ===========================
+# Dependencies
+# ===========================
+node_modules/
+
+# ===========================
+# Build Output
+# ===========================
+dist/
+build/
+coverage/
+
+# ===========================
+# Environment Variables
+# ===========================
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# Keep the template
+!.env.example
+
+# ===========================
+# Logs
+# ===========================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ===========================
+# SQLite Databases
+# ===========================
+*.db
+*.sqlite
+*.sqlite3
+
+# ===========================
+# Uploaded Files
+# ===========================
+uploads/
+temp/
+tmp/
+
+# ===========================
+# OS Files
+# ===========================
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ===========================
+# IDE / Editor
+# ===========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===========================
+# TypeScript
+# ===========================
+*.tsbuildinfo
+
+# ===========================
+# Misc
+# ===========================
+.cache/
+.parcel-cache/

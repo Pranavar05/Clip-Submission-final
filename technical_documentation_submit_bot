@@ -1,0 +1,1021 @@
+# Discord Clip Submission System — Complete Technical Documentation
+
+> **Authored by:** Lead Software Architect (Antigravity AI)
+> **Based on actual code as of:** 2026-07-27
+> **Note:** This document describes ONLY what has been built. Planned-but-not-yet-implemented features are clearly marked as **[PLANNED]**.
+
+---
+
+## 1. Project Overview
+
+### What Is This Project?
+
+The **Discord Clip Submission System** is a full-stack, TypeScript-based application that lets content clippers submit video files to a company through a two-component system: a **Discord Bot** and a **Web Submission Portal**. The two components communicate with each other via an internal REST API server, all running as a single Node.js process.
+
+### What Problem Does It Solve?
+
+Content clipping companies typically receive clip submissions through informal Discord DMs, file-sharing services, or manual channels. This causes:
+
+- No central record-keeping or tracking of who submitted what
+- Discord's hard 10MB (free) / 25MB (Nitro) file attachment limit blocking real video files
+- No enforcement of who is allowed to submit (role gating)
+- No protection against spam (rate limiting)
+- No standardized metadata collection (clip type, description)
+
+This system solves all of the above by replacing ad-hoc submissions with a structured, auditable, gated workflow.
+
+### Who Are the Users?
+
+| Role | Description |
+|---|---|
+| **Clipper** | A Discord server member with the `Clipper` role who submits video clips |
+| **Administrator** | A Discord server admin who runs `/setup-portal` to deploy the bot into a channel |
+| **System Operator** | The person running `npm run dev` on the host machine |
+
+### Major Features Currently Implemented
+
+| Feature | Status |
+|---|---|
+| Permanent Discord embed with Submit button | ✅ Implemented |
+| Role-gated access (`Clipper` role required) | ✅ Implemented |
+| In-memory rate limiting (3 submissions / hour per user) | ✅ Implemented |
+| AES-256-CBC encrypted session token generation | ✅ Implemented |
+| 15-minute expiring link sent ephemerally to the clipper | ✅ Implemented |
+| Web portal (`portal.html`) with drag-and-drop file upload | ✅ Implemented |
+| Server-side session token validation on portal load | ✅ Implemented |
+| XHR-based upload with live circular progress ring | ✅ Implemented |
+| Server-side file type validation (extension filter) | ✅ Implemented |
+| Airtable field mapping stub (logs fields, simulates record creation) | ✅ Implemented (stub) |
+| Discord channel notification embed after successful web submission | ✅ Implemented |
+| Legacy direct-upload endpoint (`POST /api/submissions`) | ✅ Implemented |
+| Health-check endpoint (`GET /api/health`) | ✅ Implemented |
+| Structured colorized logging via Winston | ✅ Implemented |
+| Environment-based configuration validation on startup | ✅ Implemented |
+
+### Features Still Planned (Not Yet Built)
+
+| Feature | Status |
+|---|---|
+| Real Airtable API integration (create actual records) | **[PLANNED]** |
+| Google Drive / Cloudflare R2 file storage | **[PLANNED]** |
+| n8n automation webhook triggers | **[PLANNED]** |
+| Analytics dashboard | **[PLANNED]** |
+| Payout automation | **[PLANNED]** |
+| Persistent rate limiting (survives restarts) | **[PLANNED]** |
+| File storage (files are currently buffered in memory and discarded) | **[PLANNED]** |
+| Production deployment / Docker containerization | **[PLANNED]** |
+| Admin approval flow | **[PLANNED]** |
+
+---
+
+## 2. Overall Architecture
+
+### High-Level Architecture
+
+```mermaid
+graph TD
+    subgraph Discord["Discord Platform"]
+        DC[Discord Client / Clipper]
+        DC_ADMIN[Discord Admin]
+    end
+
+    subgraph SingleProcess["Single Node.js Process — npm run dev"]
+        direction TB
+        BOT["Discord Bot\n(discord.js v14)"]
+        API["Express REST API\n(port 3000)"]
+        SHARED["Shared Modules\n(config, logger, token, types)"]
+        BOT --> SHARED
+        API --> SHARED
+        BOT <-->|In-process function calls| API
+    end
+
+    subgraph Frontend["Static Frontend (served by Express)"]
+        PORTAL["Web Portal\n(portal.html + style.css)"]
+    end
+
+    subgraph External["External Services"]
+        AT["Airtable\n(Stub — not connected yet)"]
+    end
+
+    DC_ADMIN -->|/setup-portal slash cmd| BOT
+    DC -->|Clicks Submit Clip button| BOT
+    BOT -->|Ephemeral reply:\nEncrypted Link| DC
+    DC -->|Opens link in browser| PORTAL
+    PORTAL -->|GET /api/portal-session| API
+    PORTAL -->|POST /api/web-submissions| API
+    API -->|AirtableService.saveSubmission| AT
+    API -->|Discord channel notification embed| BOT
+```
+
+### Why This Architecture?
+
+The most important design decision is that the **Discord Bot and REST API run in the same Node.js process**. This was a deliberate trade-off made for the current development stage:
+
+- **Simplicity** — No inter-service networking, no Docker Compose, no port management between services.
+- **Direct reference** — The API controller can import `client` directly from the bot's module to post Discord notifications without any HTTP round-trips.
+- **Cost** — One VPS, one process, zero infrastructure overhead.
+
+The trade-off is **scalability** — a single process cannot be horizontally scaled without decoupling the two services. This is the most important known limitation and is addressed in Section 11.
+
+### Backend Architecture
+
+The Express server uses a classic **Controller → Service → External layer** pattern:
+
+```mermaid
+graph LR
+    Request --> Middleware["Middleware\n(CORS, JSON, static files, multer)"]
+    Middleware --> Router["Router\n(routes.ts)"]
+    Router --> Controller["Controller\n(controllers.ts)"]
+    Controller --> TokenLib["Token Module\n(token.ts)"]
+    Controller --> AirtableSvc["AirtableService\n(airtable.ts)"]
+    Controller --> BotClient["Discord Client\n(client.ts)"]
+    AirtableSvc -->|[STUB]| Airtable
+    BotClient --> Discord
+```
+
+### Frontend Architecture
+
+The frontend is a **single vanilla HTML/CSS/JS page** — no framework, no bundler. It is served statically by the Express server from the `public/` directory.
+
+The page has four visual states managed by CSS class toggling:
+1. **Loading** — spinner while token is verified via `GET /api/portal-session`
+2. **Error** — shown if the token is expired or invalid
+3. **Form** — the actual upload form (drag-and-drop + clip type select + description)
+4. **Success** — animated checkmark + submission ID
+
+File upload uses `XMLHttpRequest` instead of `fetch()` because XHR exposes `upload.progress` events, enabling the live circular progress bar.
+
+### AI Architecture
+
+**There is no AI in this system.** No models, no LLMs, no embeddings, no inference. This section is not applicable to the current implementation.
+
+### Database Architecture
+
+**There is no real database.** The `AirtableService` is a stub that:
+- Logs the mapped field names and values
+- Awaits a simulated 500ms network delay
+- Generates a random mock record ID (`rec` + random string)
+- Returns `{ success: true, id: mockRecordId }`
+
+No actual network call to Airtable is made. No data is persisted beyond the current process lifetime.
+
+### Automation Architecture
+
+**No automation is implemented.** n8n, webhooks, and payout systems are entirely **[PLANNED]**.
+
+### Deployment Architecture
+
+**No production deployment exists.** The system runs locally via `npm run dev` (using `tsx` to execute TypeScript directly). There is no Docker, no CI/CD, no reverse proxy, no cloud hosting.
+
+---
+
+## 3. Folder Structure
+
+```
+SubmitButton/                        ← Project root
+├── .env                             ← Live secrets (git-ignored)
+├── .env.example                     ← Template for secrets
+├── package.json                     ← Dependencies & npm scripts
+├── tsconfig.json                    ← TypeScript compiler config
+├── dist/                            ← Compiled JS output (tsc build artifacts)
+│
+├── public/                          ← Static files served by Express
+│   ├── portal.html                  ← Web submission portal (single-page app)
+│   └── style.css                    ← Dark glassmorphism design system
+│
+└── src/                             ← All TypeScript source code
+    ├── index.ts                     ← Bootstrap entrypoint: validates config, starts API + bot
+    │
+    ├── shared/                      ← Cross-cutting modules shared by bot AND api
+    │   ├── config.ts                ← Reads .env, exports typed config object + validateConfig()
+    │   ├── logger.ts                ← Winston structured logger (colorized, timestamped)
+    │   ├── token.ts                 ← AES-256-CBC encrypt/decrypt for portal session tokens
+    │   └── types.ts                 ← TypeScript interfaces: ClipType, SubmissionPayload, SubmissionResponse, SubmissionState
+    │
+    ├── api/                         ← Express REST API
+    │   ├── server.ts                ← Creates Express app, mounts middleware + static + router; exports startApiServer()
+    │   ├── routes.ts                ← Defines all route handlers + multer upload instances
+    │   ├── controllers.ts           ← Business logic: handlePortalSession, handleWebSubmission, handleSubmission
+    │   └── services/
+    │       └── airtable.ts          ← AirtableService stub: maps submission fields, simulates DB write
+    │
+    └── bot/                         ← Discord Bot (discord.js v14)
+        ├── client.ts                ← Creates SubmissionBotClient, registers ready event, registers slash commands
+        ├── commands/
+        │   └── setup.ts             ← executeSetupPortal(): sends portal embed + button to channel
+        ├── events/
+        │   ├── interactionCreate.ts ← Main interaction handler: role check, rate limit, token gen, link reply
+        │   └── messageCreate.ts     ← Legacy: handles file uploads inside Discord threads (NOT WIRED UP)
+        └── services/
+            ├── rateLimiter.ts       ← In-memory sliding window rate limiter (Map<userId, timestamps[]>)
+            └── apiClient.ts         ← ApiClient.submitClip(): downloads from Discord CDN, POSTs to /api/submissions (legacy)
+```
+
+### Folder Purpose Summary
+
+| Folder | Purpose |
+|---|---|
+| `src/shared/` | Pure utilities with zero side effects, imported by both `api/` and `bot/` |
+| `src/api/` | All Express server code: routing, controllers, middleware, DB services |
+| `src/api/services/` | External service adapters (currently only the Airtable stub) |
+| `src/bot/` | All Discord.js code: client setup, command handlers, event handlers |
+| `src/bot/commands/` | One file per slash command that can be executed |
+| `src/bot/events/` | One file per Discord gateway event type |
+| `src/bot/services/` | Bot-internal services: rate limiter, HTTP client for API calls |
+| `public/` | Frontend static assets served directly by Express |
+| `dist/` | TypeScript compiled output — do not edit manually |
+
+---
+
+## 4. Languages Used
+
+### TypeScript
+
+**Why chosen:** TypeScript was chosen as the sole language for the entire backend and bot. The application handles complex, nested data structures (Discord interaction payloads, multipart form uploads, encrypted token objects) where type safety catches bugs at compile time instead of runtime.
+
+**Used in:** Everything under `src/` — all bot code, all API code, all shared utilities.
+
+**Would another language be better?** Python with discord.py + FastAPI would be a reasonable alternative. However, since both discord.js and Express are JavaScript-first ecosystems, TypeScript is the natural fit without incurring any cross-language friction. Go would be faster for the HTTP layer but lacks a mature discord library.
+
+| Pros | Cons |
+|---|---|
+| Compile-time type safety across the entire codebase | Requires build step (tsc) for production |
+| Native to Node.js / npm ecosystem | TypeScript errors can be complex to diagnose |
+| Shared types between bot and API (monorepo advantage) | `NodeNext` module resolution adds `.js` extension boilerplate |
+| Large community, excellent discord.js types | Slower startup in dev (using tsx to skip compilation) |
+
+### HTML5
+
+**Why chosen:** The web portal is a single static page. No framework overhead was needed or appropriate.
+
+**Used in:** `public/portal.html` — all UI structure, all form elements, the XHR upload logic.
+
+| Pros | Cons |
+|---|---|
+| Zero dependencies | No component reusability |
+| Served as static file — no build step | JavaScript is untyped in HTML `<script>` tags |
+| Instant page load | Harder to maintain as complexity grows |
+
+### CSS3
+
+**Why chosen:** Vanilla CSS with custom properties (CSS variables) was chosen for the full design system. No TailwindCSS or CSS-in-JS.
+
+**Used in:** `public/style.css` — the entire dark glassmorphism design system (1,000+ lines).
+
+**Design techniques implemented:**
+- CSS custom properties (design tokens for colors, spacing, radii, shadows)
+- `backdrop-filter: blur()` for glassmorphism cards
+- SVG `stroke-dashoffset` animation for the circular progress ring
+- CSS `@keyframes` for floating logo, drifting background glows, animated success checkmark
+- Responsive layout via `@media` queries
+
+| Pros | Cons |
+|---|---|
+| No build tooling required | Verbose — no utility classes |
+| Full control over every pixel | No automatic purging of unused rules |
+| Modern CSS features are very powerful | Harder to maintain component-level styles |
+
+---
+
+## 5. Frameworks & Libraries
+
+### discord.js v14.15.3
+
+**Purpose:** The official, battle-hardened Node.js library for the Discord API. Handles WebSocket gateway connections, REST API wrappers, and TypeScript type definitions for all Discord entities.
+
+**Why chosen:** It is the industry standard for Discord bots in JavaScript/TypeScript. No meaningful alternative exists.
+
+**Features used from discord.js:**
+- `Client` with `GatewayIntentBits.Guilds` intent only (minimal surface area)
+- `EmbedBuilder` for rich message formatting
+- `ActionRowBuilder` + `ButtonBuilder` for interactive buttons
+- `ButtonStyle.Link` for the external portal URL button
+- `ButtonStyle.Primary` for the submit-clip call-to-action button
+- `PermissionFlagsBits.Administrator` for `/setup-portal` access check
+- `MessageFlags.Ephemeral` to send private (only-visible-to-user) replies
+- `ApplicationCommandData` for slash command registration
+- Guild-scoped command registration (instant; vs global which has 1-hour propagation delay)
+
+**Possible alternatives:** `Eris`, `Oceanic.js` — both viable but smaller ecosystems.
+
+---
+
+### Express v4.19.2
+
+**Purpose:** HTTP web framework powering the REST API and static file server.
+
+**Why chosen:** Express is the most widely used Node.js HTTP framework. It has the largest middleware ecosystem (cors, multer all have first-class Express integration).
+
+**Features used:**
+- `express.static()` to serve `public/` directory
+- `express.json()` and `express.urlencoded()` body parsers
+- `Router` for modular route definitions
+- Global error handler middleware (4-argument `(err, req, res, next)`)
+- CORS middleware via `cors` package
+
+**Possible alternatives:** Fastify (faster, stricter), Hono (edge-compatible). Express was correct for this use case.
+
+---
+
+### multer v1.4.5-lts.1
+
+**Purpose:** Node.js middleware for handling `multipart/form-data` — the encoding type used for file uploads.
+
+**Configuration — Two separate instances exist:**
+
+| Instance | Storage | Max File Size | Used By |
+|---|---|---|---|
+| `discordUpload` | `memoryStorage()` | 25MB (from config env) | `POST /api/submissions` (legacy) |
+| `webUpload` | `memoryStorage()` | 200MB (hardcoded) | `POST /api/web-submissions` |
+
+**File filter:** Both instances enforce a regex extension whitelist: `/\.(mp4|mov|avi|mkv|webm)$/i`.
+
+**Important note:** `memoryStorage()` means the entire file buffer lives in RAM. For 200MB files this is a significant memory cost. This is appropriate for development but requires streaming storage (disk or cloud) in production.
+
+**Possible alternatives:** `busboy` (lower-level, more control), `formidable`.
+
+---
+
+### dotenv v16.4.5
+
+**Purpose:** Loads environment variables from the `.env` file into `process.env` at startup.
+
+**Used in:** `src/shared/config.ts` — called as `dotenv.config()` before any config values are read.
+
+---
+
+### winston v3.13.0
+
+**Purpose:** Structured, leveled logging with colorized console output.
+
+**Configuration:**
+- Log level: `debug` in development, `info` in production (based on `NODE_ENV`)
+- Format: `[YYYY-MM-DD HH:mm:ss] [level]: message`
+- Single transport: Console with colorization
+- No file transports or remote logging configured
+
+**Used in:** Every module via `import { logger } from '../shared/logger.js'`
+
+---
+
+### axios v1.7.9
+
+**Purpose:** HTTP client used by `ApiClient.submitClip()` to download video files from Discord's CDN (as `arraybuffer`) and to POST multipart form data to the REST API.
+
+**Currently used in:** `src/bot/services/apiClient.ts` — the **legacy** bot-to-API bridge. This path is **not actively wired up** in the current flow (the web portal replaced it), but the code exists and is compiled.
+
+---
+
+### cors v2.8.5
+
+**Purpose:** Adds `Access-Control-Allow-Origin` headers so browsers can make cross-origin requests to the API.
+
+**Configuration:** Permissive (default `*`) — appropriate for development. Needs origin restriction in production.
+
+---
+
+### tsx v4.15.7 (devDependency)
+
+**Purpose:** TypeScript execute — runs `.ts` files directly without a `tsc` compile step during development.
+
+**Used by:** `npm run dev` script (`tsx src/index.ts`).
+
+---
+
+### typescript v5.5.2 (devDependency)
+
+**Purpose:** The TypeScript compiler.
+
+**tsconfig.json settings of note:**
+
+| Setting | Value | Reason |
+|---|---|---|
+| `target` | `ES2022` | Modern syntax: top-level await, class fields |
+| `module` | `NodeNext` | Proper ESM-compatible module resolution for Node.js |
+| `moduleResolution` | `NodeNext` | Forces `.js` extensions in imports for ESM correctness |
+| `strict` | `true` | Enables all strict type checks |
+| `esModuleInterop` | `true` | Allows default imports from CommonJS modules |
+
+---
+
+### Node.js built-in: `crypto`
+
+**Purpose:** Cryptographic operations for the session token system.
+
+**Used in:** `src/shared/token.ts`
+
+- `crypto.createHash('sha256')` — derives a 32-byte AES key from `API_AUTH_TOKEN`
+- `crypto.randomBytes(16)` — generates a fresh random 128-bit IV per token
+- `crypto.createCipheriv('aes-256-cbc', KEY, iv)` — encrypts the session payload
+- `crypto.createDecipheriv('aes-256-cbc', KEY, iv)` — decrypts and verifies the token
+
+---
+
+## 6. Database Design
+
+### Current State: No Database Exists
+
+The application has **zero persistent storage**. All data is ephemeral and lives only in memory during the process lifetime.
+
+### Airtable Stub — What It Does vs. What It Will Do
+
+The `AirtableService` class in `src/api/services/airtable.ts` is a **stub**. It maps submission data to Airtable-style field names for logging purposes, then generates a fake record ID.
+
+**Fields mapped (ready for real Airtable integration):**
+
+| Airtable Field Name | Source |
+|---|---|
+| `Discord Username` | `payload.discordUser` |
+| `Discord User ID` | `payload.userId` |
+| `Creator` | `payload.displayName` |
+| `Clip Type` | `payload.clipType` (`Raw` / `Edited` / `Stolen`) |
+| `Description` | `payload.description` |
+| `Video Name` | `videoFile.originalname` |
+| `Video Size (Bytes)` | `videoFile.size` |
+| `Video Content Type` | `videoFile.mimetype` |
+| `Submission Time` | `payload.submittedAt` (ISO 8601 string) |
+| `Status` | Hardcoded: `'Pending Approval'` |
+
+### Rate Limiter Data Store
+
+The in-memory rate limiter stores state in a `Map<userId, number[]>` — an array of Unix timestamps per user ID.
+
+- **No persistence** — clears on restart
+- **Window:** 1 hour (configurable via `RATE_LIMIT_WINDOW_MS`)
+- **Max submissions:** 3 per window (configurable via `RATE_LIMIT_MAX_SUBMISSIONS`)
+- **Algorithm:** Sliding window — old timestamps are filtered out on each check
+
+### File Storage
+
+**No file storage exists.** Files arrive as `Buffer` objects in RAM via multer's `memoryStorage()` and are passed to `AirtableService.saveSubmission()`. The stub does nothing with `videoFile.buffer`. After the response is sent, the buffer is garbage collected.
+
+---
+
+## 7. APIs
+
+### `GET /api/portal-session`
+
+**Purpose:** Called by `portal.html` on page load to validate the encrypted session token from the URL query string.
+
+**Authentication:** Token embedded in `?token=` query parameter (AES-256-CBC encrypted payload).
+
+**Inputs:**
+```
+GET /api/portal-session?token=<hex-encoded-encrypted-token>
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "displayName": "Navaneeth",
+  "discordUser": "nava__007"
+}
+```
+
+**Error Response (401 — expired/invalid token):**
+```json
+{
+  "success": false,
+  "message": "This session link has expired or is invalid. Please return to Discord and request a new one."
+}
+```
+
+**Error Response (400 — missing token):**
+```json
+{
+  "success": false,
+  "message": "Missing session token."
+}
+```
+
+**Rate limiting:** None on this endpoint.
+
+---
+
+### `POST /api/web-submissions`
+
+**Purpose:** Receives the video file and metadata submitted from the web portal. Validates the session token, processes the submission, notifies Discord, and returns a submission ID.
+
+**Authentication:** Session token in `Authorization: Bearer <token>` header. Uses the same AES-256-CBC decryption — the token IS the auth mechanism. No separate API key needed.
+
+**Content-Type:** `multipart/form-data`
+
+**File size limit:** 200MB
+
+**Inputs (multipart form fields):**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `video` | File | Yes | The video file (mp4, mov, avi, mkv, webm) |
+| `clipType` | string | Yes | One of: `Raw`, `Edited`, `Stolen` |
+| `description` | string | No | Free-text notes about the clip |
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Your clip has been submitted successfully.",
+  "submissionId": "recABCDEF12345"
+}
+```
+
+**Error Responses:**
+
+| Status | Condition |
+|---|---|
+| 401 | Missing or expired Authorization token |
+| 400 | No video file, invalid clip type, wrong file extension |
+| 500 | Internal server error |
+
+---
+
+### `POST /api/submissions` (Legacy)
+
+**Purpose:** The original bot-to-API submission path. The Discord bot would download the video from Discord's CDN, then POST it here. This path is no longer used by the primary flow but remains active.
+
+**Authentication:** `Authorization: Bearer <API_AUTH_TOKEN>` (static shared secret from `.env`).
+
+**Content-Type:** `multipart/form-data`
+
+**File size limit:** 25MB (from `MAX_FILE_SIZE_BYTES` env var)
+
+**Inputs (multipart form fields):**
+
+| Field | Type | Required |
+|---|---|---|
+| `video` | File | Yes |
+| `discordUser` | string | Yes |
+| `displayName` | string | Yes |
+| `userId` | string | Yes |
+| `clipType` | string | Yes |
+| `submittedAt` | string (ISO 8601) | Yes |
+| `serverId` | string | Yes |
+| `channelId` | string | Yes |
+| `description` | string | No |
+| `metadata` | JSON string | Alternative to individual fields |
+
+---
+
+### `GET /api/health`
+
+**Purpose:** Health check endpoint.
+
+**Authentication:** None.
+
+**Response (200):**
+```json
+{
+  "status": "ok",
+  "service": "Clip Submission API"
+}
+```
+
+---
+
+## 8. AI System
+
+**This system has no AI components.** There are no language models, embeddings, vector stores, RAG pipelines, or inference systems of any kind in the current implementation.
+
+---
+
+## 9. System Design
+
+### Request Lifecycle — Web Portal Submission (Primary Flow)
+
+```mermaid
+sequenceDiagram
+    participant Admin as Discord Admin
+    participant Bot as Discord Bot
+    participant Clipper as Discord Clipper
+    participant Portal as portal.html (Browser)
+    participant API as Express API
+    participant AT as AirtableService (Stub)
+
+    Admin->>Bot: /setup-portal
+    Bot->>Bot: Check Administrator permission
+    Bot->>Bot: Send embed + Submit Clip button to channel
+    Bot-->>Admin: Ephemeral ✅ confirmation
+
+    Clipper->>Bot: Click "Submit Clip" button
+    Bot->>Bot: Check Clipper role
+    Bot->>Bot: Check rate limit (in-memory)
+    Bot->>Bot: encryptToken(userId, displayName, channelId, expiresAt=+15min)
+    Bot-->>Clipper: Ephemeral reply: embed + "Open Submission Portal" link button
+
+    Clipper->>Portal: Opens URL in browser
+    Portal->>API: GET /api/portal-session?token=...
+    API->>API: decryptToken(token), check expiry
+    API-->>Portal: { success: true, displayName }
+    Portal->>Portal: Show form, inject displayName
+
+    Clipper->>Portal: Select file (drag/drop or browse), choose clip type, optionally add description
+    Clipper->>Portal: Click "Submit Clip"
+    Portal->>Portal: Client-side validation (extension, size <100MB)
+    Portal->>API: POST /api/web-submissions (XHR with progress events)
+    API->>API: decryptToken from Authorization header
+    API->>API: Validate file presence + clip type whitelist
+    API->>AT: AirtableService.saveSubmission(payload, fileInfo)
+    AT-->>API: { success: true, id: "recXXX" }
+    API->>Bot: client.channels.fetch(channelId) → send notification embed
+    API-->>Portal: { success: true, submissionId: "recXXX" }
+    Portal->>Portal: Show success screen with submission ID
+```
+
+### Authentication Flow
+
+Two distinct auth mechanisms exist side-by-side:
+
+**1. Web Portal Session Token (AES-256-CBC)**
+- Generated on button click in `interactionCreate.ts` using `encryptToken()`
+- The key is `SHA-256(API_AUTH_TOKEN)` — a 32-byte deterministic key derived from the shared secret
+- The IV is a fresh `crypto.randomBytes(16)` per token — never reused
+- The token format is: `<IV_hex>:<ciphertext_hex>` (URL-encoded in the query string)
+- Expires 15 minutes after generation (expiry encoded inside the encrypted payload)
+- Validated twice: on page load (`GET /api/portal-session`) and on form submit (`POST /api/web-submissions`)
+- If tampered with, `decipher.final()` will throw a crypto error → `decryptToken` returns `null` → 401
+
+**2. Static Bearer Token (Legacy API)**
+- `POST /api/submissions` uses `authenticateAPI` middleware
+- Checks `Authorization: Bearer <token>` against `config.apiAuthToken` (plaintext comparison)
+- This is a simple shared secret — appropriate for internal bot-to-API communication on localhost
+
+### Rate Limiting
+
+Rate limiting is implemented in-memory as a **sliding window counter**:
+
+```
+Class RateLimiter {
+  private submissions = new Map<userId, number[]>  // userId → list of Unix timestamps
+  
+  isRateLimited(userId):
+    windowStart = now - RATE_LIMIT_WINDOW_MS (default: 1 hour)
+    activeTimestamps = filter(timestamps where ts > windowStart)
+    if activeTimestamps.length >= RATE_LIMIT_MAX_SUBMISSIONS (default: 3):
+      timeLeft = WINDOW_MS - (now - oldestActiveTimestamp)
+      return { limited: true, timeLeftSeconds }
+    return { limited: false }
+  
+  addSubmission(userId):
+    push(now) to timestamps
+}
+```
+
+**Important:** Rate limiting is enforced at **portal link generation time** (when the button is clicked), not at submission time. If a clipper generates a link but does not use it, the slot is still consumed.
+
+**Known limitation:** All state is lost on process restart.
+
+### Submission Flow — Data Transformation
+
+```
+Discord Interaction
+    ↓
+PortalSessionPayload (encrypted into token):
+  { userId, discordUser, displayName, serverId, channelId, expiresAt }
+    ↓ (15min later, browser submits form)
+handleWebSubmission():
+  decryptToken(authHeader) → PortalSessionPayload
+  + req.file (multer buffer)
+  + req.body.clipType
+  + req.body.description
+    ↓
+SubmissionPayload (passed to AirtableService):
+  { discordUser, displayName, userId, clipType, description, submittedAt, serverId, channelId }
+  + FileInfo { originalname, size, buffer, mimetype }
+    ↓ (stub — logs fields, returns mock ID)
+mockRecordId = "rec" + random()
+    ↓
+Discord notification embed → channel
+    ↓
+HTTP 200 { success: true, submissionId }
+```
+
+### Logging
+
+Winston is configured with a single Console transport. Log levels and their current usage:
+
+| Level | Used For |
+|---|---|
+| `error` | Uncaught exceptions, API failures, Discord errors |
+| `warn` | Unauthorized access attempts, failed non-critical operations |
+| `info` | Bot startup, login, command registration, submission events |
+| `debug` | Request-by-request logging, static file dir path |
+
+---
+
+## 10. Security
+
+### What Is Actually Secured
+
+**Session Token Security (AES-256-CBC)**
+- The portal link contains an AES-256-CBC encrypted token. Tampering with any byte causes decryption to fail entirely.
+- Each token uses a unique random IV — identical payloads produce different ciphertexts.
+- Time-expiry is encoded inside the ciphertext and cannot be extended without the key.
+- The key is derived from `API_AUTH_TOKEN` using SHA-256 — it is never transmitted directly.
+
+**Role Authorization**
+- The `CLIPPER_ROLE_ID` is compared against the interaction member's role cache before generating any link.
+- If `CLIPPER_ROLE_ID` is empty/unset, the check is bypassed (for development convenience — a known gap).
+- Admin-only: `/setup-portal` checks `PermissionFlagsBits.Administrator` via Discord's permission system.
+
+**File Type Validation**
+- Extension-based whitelist enforced in **two places** independently:
+  1. **Client-side** (JavaScript in `portal.html`) — immediate UX feedback
+  2. **Server-side** (multer `fileFilter` in `routes.ts`) — authoritative check
+- Allowed: `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`
+
+**File Size Limits**
+- Web portal: 200MB enforced by multer before controller runs
+- Client-side in HTML: 100MB soft limit (UX only — server enforces 200MB)
+- Legacy endpoint: 25MB from `MAX_FILE_SIZE_BYTES` env var
+
+**Rate Limiting**
+- 3 portal links per user per hour (sliding window, in-memory)
+- Prevents link farming and submission spam
+
+**Ephemeral Replies**
+- All bot replies to users use `MessageFlags.Ephemeral` — only the target user can see the link. No one else in the channel can copy or reuse it.
+
+### What Is NOT Secured (Known Gaps)
+
+| Gap | Risk | Mitigation Path |
+|---|---|---|
+| CORS is wide open (`*`) | Any website can call the API | Restrict to known origins in production |
+| Static Bearer token (legacy endpoint) is a plaintext string | If leaked, anyone can POST submissions | Rotate token, use HTTPS, restrict network access |
+| In-memory rate limiter resets on restart | Clippers can bypass by restarting server | Move to Redis or a persistent store |
+| File contents are not scanned | Malicious video file could exploit a parser | Add ClamAV or equivalent on the backend |
+| No CSRF protection on web portal | CSRF attacks possible | Add `SameSite` cookie or CSRF token |
+| `CLIPPER_ROLE_ID` can be left empty | Bypasses role check entirely | Make env var required, fail startup if missing |
+| Discord notification is non-critical failure | Submission proceeds even if bot can't post | Acceptable for current scale |
+
+---
+
+## 11. Scalability
+
+### How Many Users Can This Handle Right Now?
+
+| Scale | Assessment |
+|---|---|
+| **100 users** | ✅ Handles comfortably — single process, low traffic |
+| **1,000 users** | ✅ Handles — Node.js event loop is non-blocking; Express + Discord.js at this load is fine |
+| **10,000 users** | ⚠️ Starts degrading — in-memory rate limiter is O(N·M), multer memoryStorage with concurrent 200MB uploads will saturate RAM |
+| **100,000 users** | ❌ Fails — single Node.js process cannot handle this load. RAM exhaustion from file buffers, Discord WebSocket reconnects under load |
+| **1,000,000 users** | ❌ Catastrophic failure — not designed for this |
+
+### What Breaks First
+
+1. **RAM** — multer `memoryStorage()` holds the entire file buffer in RAM during upload. A single 200MB concurrent upload uses 200MB of Node.js heap. With 10 concurrent uploads, that is 2GB+ of heap pressure. This is the first thing to fail.
+
+2. **In-memory rate limiter** — Cannot be shared across multiple processes, and grows without bound until old timestamps are cleaned.
+
+3. **Airtable stub** — Currently does nothing. The real Airtable API is rate-limited (5 requests/second). Under load, all submissions will queue or fail.
+
+4. **Single-process bot+API coupling** — Deploying multiple API instances requires decoupling the Discord notification step into a message queue (e.g., BullMQ + Redis).
+
+### How to Scale It
+
+| Phase | Action |
+|---|---|
+| Phase 1 | Move file storage to disk (`multer.diskStorage`) or stream directly to cloud (Cloudflare R2) |
+| Phase 2 | Replace in-memory rate limiter with Redis `INCR` + `EXPIRE` |
+| Phase 3 | Separate the Discord Bot process from the API process; use Redis pub/sub for cross-service notifications |
+| Phase 4 | Containerize with Docker; deploy API behind Nginx with PM2 cluster mode |
+| Phase 5 | Move heavy upload processing to a BullMQ worker queue |
+
+---
+
+## 12. Performance
+
+### Slowest Operations (by Current Implementation)
+
+| Operation | Latency | Cause |
+|---|---|---|
+| `AirtableService.saveSubmission()` | ~500ms | Intentional simulated delay in stub |
+| File upload (200MB file) | Network-bound | User's upload speed to localhost |
+| `client.channels.fetch()` (Discord notification) | 100–500ms | Discord REST API round-trip |
+| `decryptToken()` | <1ms | AES-256 is extremely fast |
+| Role check + rate limit check | <1ms | In-memory Map operations |
+| Session token validation (`GET /api/portal-session`) | <5ms | Single decrypt + JSON parse |
+
+### Biggest Bottlenecks
+
+1. **File buffering in RAM** — The biggest performance risk. No streaming means the server must receive the entire file before doing anything with it.
+2. **Sequential processing** — `AirtableService` then `Discord notification` are awaited sequentially. If Discord is slow, the API response is blocked.
+3. **No connection pooling** — No database connections to pool currently, but the Airtable SDK will need this.
+
+### Optimization Techniques in Place
+
+- **Non-blocking I/O** — Node.js event loop handles concurrency naturally for I/O-bound work
+- **Early validation** — Token decryption, file presence check, and clip type validation all happen before the Airtable call
+- **`multer.memoryStorage()`** — Files land directly in RAM without disk I/O overhead (fast for small files)
+
+---
+
+## 13. Deployment
+
+### Current Development Setup
+
+```bash
+# 1. Clone/navigate to project
+cd C:\Users\navap\Desktop\SubmitButton
+
+# 2. Install dependencies
+npm install
+
+# 3. Configure environment
+# Copy .env.example to .env and fill in real values
+
+# 4. Run in development mode (TypeScript executed directly via tsx)
+npm run dev
+
+# 5. Build TypeScript to dist/ (for production start)
+npm run build
+npm start
+```
+
+### Environment Variables
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `PORT` | `3000` | No | HTTP server port |
+| `API_BASE_URL` | `http://localhost:3000` | Yes (prod) | Public-facing URL of the API server |
+| `API_AUTH_TOKEN` | `super-secret-...` | Yes | Shared secret for legacy endpoint + token key derivation |
+| `DISCORD_TOKEN` | — | Yes | Discord bot token from Developer Portal |
+| `DISCORD_CLIENT_ID` | — | Yes | Discord application client ID |
+| `DISCORD_GUILD_ID` | — | No | Guild ID for dev (guild commands register instantly) |
+| `CLIPPER_ROLE_ID` | — | Recommended | Discord role ID required to submit |
+| `MAX_FILE_SIZE_BYTES` | `26214400` (25MB) | No | Legacy endpoint file limit |
+| `RATE_LIMIT_WINDOW_MS` | `3600000` (1hr) | No | Rate limit window |
+| `RATE_LIMIT_MAX_SUBMISSIONS` | `3` | No | Max submissions per window per user |
+| `AIRTABLE_API_KEY` | — | No | [PLANNED] Real Airtable integration |
+| `AIRTABLE_BASE_ID` | — | No | [PLANNED] Airtable base ID |
+| `AIRTABLE_TABLE_NAME` | `Clips` | No | [PLANNED] Airtable table name |
+
+### No Production Deployment
+
+There is currently no:
+- Docker or Docker Compose file
+- CI/CD pipeline
+- Nginx reverse proxy configuration
+- SSL/TLS certificate
+- PM2 process manager configuration
+- Cloud hosting provider
+- Backup strategy
+- Disaster recovery plan
+
+---
+
+## 14. Current Development Status
+
+### Completed Modules
+
+| Module | Status | Notes |
+|---|---|---|
+| Project scaffolding | ✅ Complete | package.json, tsconfig.json, .env structure |
+| Shared config system | ✅ Complete | Type-safe, env-validated |
+| Shared logger | ✅ Complete | Winston, colorized, leveled |
+| Shared token crypto | ✅ Complete | AES-256-CBC, IV per token, TTL expiry |
+| Shared TypeScript types | ✅ Complete | `ClipType`, `SubmissionPayload`, `SubmissionResponse`, `SubmissionState` |
+| Express server | ✅ Complete | With static file serving |
+| API routes | ✅ Complete | 4 endpoints wired |
+| API controllers | ✅ Complete | 3 handlers implemented |
+| Airtable service stub | ✅ Stub | Logs fields, mocks ID, no real API call |
+| Discord bot client | ✅ Complete | Minimal intents, slash command registration |
+| `/setup-portal` command | ✅ Complete | Admin-only, posts embed + button |
+| `interactionCreate` event | ✅ Complete | Role check, rate limit, token gen, link reply |
+| In-memory rate limiter | ✅ Complete | Sliding window, configurable |
+| Web portal HTML | ✅ Complete | 4 screen states, drag-and-drop, XHR progress |
+| Web portal CSS | ✅ Complete | Dark glassmorphism, animations, responsive |
+
+### Partially Completed Modules
+
+| Module | Status | Notes |
+|---|---|---|
+| `messageCreate.ts` (legacy) | ⚠️ Exists but NOT wired | Handles Discord-thread-based upload flow; disconnected from client.ts |
+| `apiClient.ts` (legacy) | ⚠️ Exists but NOT actively used | ApiClient.submitClip() — legacy Discord CDN download path |
+
+### Missing Modules
+
+| Module | Status |
+|---|---|
+| Real Airtable API client | ❌ Not built |
+| File storage (cloud) | ❌ Not built |
+| n8n webhook integration | ❌ Not built |
+| Admin approval dashboard | ❌ Not built |
+| Payout automation | ❌ Not built |
+| Analytics | ❌ Not built |
+| Redis-backed rate limiter | ❌ Not built |
+| Docker / production deployment | ❌ Not built |
+
+### Known Bugs / Technical Debt
+
+| Issue | Severity | Notes |
+|---|---|---|
+| Files are buffered in RAM and never persisted | 🔴 Critical | Submissions are lost after the response is sent |
+| Rate limiting resets on restart | 🟡 Medium | Users can bypass by restarting the process |
+| `messageCreate.ts` is dead code (not wired) | 🟡 Medium | `submissionFlow` service imported but that service file doesn't exist — would crash if wired |
+| Discord notification failure is silently caught | 🟢 Low | Submission succeeds even without Discord ping |
+| CLIPPER_ROLE_ID check is skipped if env var is empty | 🟡 Medium | New deployments without this var set have no role restriction |
+| `SubmissionState` type references `threadId` step machine | 🟢 Low | Leftover from the old private-thread flow — not used in current flow |
+
+---
+
+## 15. Design Decisions
+
+### Why Discord.js instead of another bot framework?
+
+Discord.js v14 is the only serious TypeScript-native choice for Discord bots. It has official support from ex-Discord engineers, first-party TypeScript definitions, and is maintained for every API version Discord releases.
+
+### Why not keep the Discord private thread flow?
+
+The original design used private Discord threads where clippers uploaded files directly. This was abandoned because Discord's file upload limit (10MB free, 25MB Nitro) was the central problem the client wanted to solve. A web portal with a 200MB limit was the correct architectural response.
+
+### Why AES-256-CBC instead of JWT?
+
+JWTs use HMAC or RSA for signature verification, which proves integrity but does not hide the payload (the payload is base64-encoded, not encrypted). Since the session payload contains `userId`, `serverId`, and `channelId`, it was decided to encrypt rather than just sign. AES-256-CBC with a fresh IV per token provides both confidentiality and integrity.
+
+### Why derive the AES key from `API_AUTH_TOKEN`?
+
+This avoids adding another environment variable. The SHA-256 of any string produces exactly 32 bytes — the required AES-256 key size. As long as `API_AUTH_TOKEN` is kept secret, the token key remains secret.
+
+### Why serve the HTML portal from Express instead of a CDN?
+
+The portal must reach the API server. In development, everything runs on `localhost:3000`. Serving from the same origin eliminates CORS entirely — the XHR to `/api/web-submissions` is a same-origin request. In production, a CDN could serve the static files, but CORS headers would then need to be configured precisely.
+
+### Why XML HTTP Request instead of fetch for upload?
+
+The `fetch()` API does not expose upload progress events. `XMLHttpRequest.upload.progress` is the only standard browser API for tracking upload progress. The circular progress ring UI was a core requirement, making XHR the only viable choice.
+
+### Why not use a database like PostgreSQL or MongoDB?
+
+The submission data targets Airtable — a spreadsheet-style no-code database — because the client is a content clipping company, not an engineering team. Their operators need to view, filter, and act on submissions without writing SQL. Airtable's GUI fits this use case perfectly.
+
+---
+
+## 16. Overall Technical Summary
+
+### Complete Tech Stack
+
+| Category | Technology |
+|---|---|
+| Runtime | Node.js v24.13.0 |
+| Language | TypeScript 5.5 (strict mode) |
+| Bot Framework | discord.js v14.15.3 |
+| HTTP Framework | Express v4.19.2 |
+| File Upload | multer v1.4.5-lts.1 |
+| Cryptography | Node.js built-in `crypto` (AES-256-CBC) |
+| HTTP Client | axios v1.7.9 |
+| Logging | winston v3.13.0 |
+| Env Config | dotenv v16.4.5 |
+| Dev Runner | tsx v4.15.7 |
+| Frontend | Vanilla HTML5 + CSS3 + JavaScript (ES2022) |
+| Database | None (Airtable stub only) |
+| File Storage | None (in-memory only) |
+| Deployment | Manual (`npm run dev` on local machine) |
+
+### Architecture Style
+
+**Layered Monolith** — A single Node.js process contains both the Discord Bot and the REST API. Internally, the code follows a layered architecture:
+
+1. **Entry Layer** — `index.ts` bootstraps everything
+2. **Transport Layer** — Discord Gateway (bot) + HTTP (Express API)
+3. **Routing Layer** — `routes.ts`, `interactionCreate.ts`
+4. **Controller Layer** — `controllers.ts`, command handlers, event handlers
+5. **Service Layer** — `AirtableService`, `RateLimiter`, `ApiClient`
+6. **Shared/Utility Layer** — `config`, `logger`, `token`, `types`
+
+### Design Patterns Used
+
+| Pattern | Where |
+|---|---|
+| Singleton | `client` (Discord), `rateLimiter`, `config`, `logger` — all module-level singletons |
+| Strategy | Two multer upload instances with different configs for different routes |
+| Facade | `AirtableService` class hides future complexity behind a simple `saveSubmission()` interface |
+| Token / Capability | AES-encrypted URL token grants scoped, time-limited access |
+| Middleware Pipeline | Express middleware chain (CORS → JSON → Static → Logging → Router → Error) |
+| Command Pattern | `executeSetupPortal()` encapsulates the full setup command as a function |
+
+### Programming Paradigms
+
+- **Async/Await first** — All I/O is async, no callback-based code
+- **Functional utilities** — `config`, `logger`, `token` are pure function modules
+- **OOP for services** — `AirtableService`, `RateLimiter`, `ApiClient` are classes with static or instance methods
+
+### Scores
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| **Architecture** | 7/10 | Clean layering, good separation; loses points for monolith coupling and no real persistence |
+| **System Design** | 7/10 | The token + web portal design is elegant and solves the real problem well |
+| **Code Organization** | 8/10 | Folder structure is clear, single-responsibility files, shared module is properly centralized |
+| **Scalability** | 3/10 | In-memory state, RAM file buffering, no horizontal scaling capability |
+| **Maintainability** | 7.5/10 | TypeScript strict mode + clean structure makes future work straightforward; dead code (messageCreate.ts) drags it down |
+| **Production Readiness** | 3/10 | No real storage, no deployment config, no monitoring, no HTTPS — development-grade only |
+
+### Estimated Project Complexity
+
+**Intermediate** — The project spans multiple domains (Discord API, HTTP servers, cryptography, file handling, browser UX) and wires them together with a non-trivial security model. The individual components are well-understood technologies; the complexity comes from their integration.
+
+### Estimated Development Level
+
+**Intermediate to Advanced** — The AES-256-CBC token system, the XHR upload progress ring, the role-checking interaction lifecycle, and the dual-purpose Express server all require familiarity beyond beginner level. A senior engineer would write this more idiomatically, but there are no egregious beginner mistakes.

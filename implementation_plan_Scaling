@@ -1,0 +1,242 @@
+# Implementation Plan - Production-Ready SaaS Backend Migration
+
+This plan details the steps to transition the Clip Submission System from a single-instance development mock (using SQLite databases and in-process queues) to a production-grade, highly-scalable architecture running on PostgreSQL and Redis (BullMQ).
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Hosting & Infrastructure Dependencies**:
+> Running this configuration requires:
+> 1. **PostgreSQL Database** (e.g., Neon or standard Postgres).
+> 2. **Redis Database** (e.g., Railway Redis or Redis Cloud) for BullMQ queues and rate-limiting.
+>
+> We will configure the backend to automatically fall back to mocking databases/queues if the environment variables are not present in development, but production requires setting these variables.
+
+---
+
+## Proposed Changes
+
+We will restructure the application to support both a unified development environment (monolithic) and decoupled deployment processes (API, Bot, Worker) suitable for Railway.
+
+```mermaid
+graph TD
+    subgraph Frontend [Cloudflare Pages]
+        WebPortal[Web Portal UI]
+    end
+
+    subgraph Load Balancer
+        LB[Railway Ingress]
+    end
+
+    subgraph API Cluster [Railway API Service - Scaled]
+        Express[Express App]
+    end
+
+    subgraph Bot Process [Railway Bot Service - Single]
+        DiscordClient[Discord Bot Client]
+    end
+
+    subgraph Queue Worker [Railway Worker Service - Scaled]
+        BullWorker[BullMQ Job Processor]
+    end
+
+    subgraph Core Cloud Resources
+        Postgres[(Neon PostgreSQL)]
+        Redis[(Redis Cache & Queue)]
+        R2[Cloudflare R2 Storage]
+        Airtable[Airtable API]
+    end
+
+    WebPortal --> LB
+    LB --> Express
+    DiscordClient -- 1. Interaction --> Postgres
+    DiscordClient -- 2. Cache Cooldown --> Redis
+    Express -- Check Auth / Create Submission --> Postgres
+    Express -- Stream directly --> R2
+    Express -- Enqueue Sync Job --> Redis
+    BullWorker -- Poll Jobs --> Redis
+    BullWorker -- Sync Record --> Airtable
+    BullWorker -- Notification Embed --> DiscordClient
+```
+
+---
+
+### 1. Database Schema Design (PostgreSQL)
+
+We will replace the local SQLite databases (`tokens.db`, `queue.db`, `mock_submissions.db`) with a single PostgreSQL connection. The tables will be:
+
+```sql
+-- Sequence for generating human-readable sequential submission IDs (e.g., SUB-000001)
+CREATE SEQUENCE IF NOT EXISTS submission_id_seq START 1;
+
+-- Table for active Creators
+CREATE TABLE IF NOT EXISTS creators (
+  id VARCHAR(50) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table for active Campaigns (optional database tracking)
+CREATE TABLE IF NOT EXISTS campaigns (
+  id VARCHAR(50) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'Active',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table for Upload Tokens (portal sessions)
+CREATE TABLE IF NOT EXISTS upload_tokens (
+  token UUID PRIMARY KEY,
+  user_id VARCHAR(50) NOT NULL,
+  discord_user VARCHAR(255) NOT NULL,
+  display_name VARCHAR(255) NOT NULL,
+  server_id VARCHAR(50) NOT NULL,
+  channel_id VARCHAR(50) NOT NULL,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  used BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table for Video Submissions tracking lifecycle state
+CREATE TABLE IF NOT EXISTS submissions (
+  id VARCHAR(50) PRIMARY KEY, -- Formatted: SUB-000001
+  token UUID REFERENCES upload_tokens(token) ON DELETE SET NULL,
+  user_id VARCHAR(50) NOT NULL,
+  discord_username VARCHAR(255) NOT NULL,
+  creator_id VARCHAR(50) REFERENCES creators(id) ON DELETE RESTRICT,
+  clip_type VARCHAR(50) NOT NULL, -- Raw, Edited, Stolen
+  description TEXT,
+  bucket VARCHAR(255) NOT NULL,
+  object_key VARCHAR(255) NOT NULL,
+  size_bytes BIGINT DEFAULT 0,
+  original_filename VARCHAR(255),
+  status VARCHAR(50) NOT NULL DEFAULT 'CREATED', -- CREATED, UPLOADING, UPLOADED, READY_FOR_REVIEW, APPROVED, REJECTED, FAILED
+  server_id VARCHAR(50),
+  channel_id VARCHAR(50),
+  submitted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table for Audit Logging
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id SERIAL PRIMARY KEY,
+  action VARCHAR(255) NOT NULL, -- e.g., TOKEN_GENERATION, CAMPAIGN_CHANGE
+  actor_id VARCHAR(50) NOT NULL,
+  actor_username VARCHAR(255) NOT NULL,
+  details TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table for Review History
+CREATE TABLE IF NOT EXISTS review_history (
+  id SERIAL PRIMARY KEY,
+  submission_id VARCHAR(50) REFERENCES submissions(id) ON DELETE CASCADE,
+  reviewer_id VARCHAR(50) NOT NULL,
+  action VARCHAR(50) NOT NULL, -- APPROVED, REJECTED
+  note TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+### 2. Multi-Step Submission State Flow
+
+We will split the video upload flow into two endpoints to validate metadata prior to large file transmission and secure state transitions:
+
+1. **Initiate (`POST /api/web-submissions/init`)**:
+   * API validates the bearer session token.
+   * API validates the text inputs (valid `creatorId`, `clipType`).
+   * API generates a new sequential ID `SUB-XXXXXX` from the PostgreSQL sequence.
+   * API creates a submission record in the database with status `CREATED`.
+   * Returns `{ success: true, submissionId: string }`.
+2. **Upload (`POST /api/web-submissions/upload/:submissionId`)**:
+   * API checks if submission is in `CREATED` status.
+   * API updates status to `UPLOADING`.
+   * Streams file chunks directly to Cloudflare R2 via `busboy` while counting bytes and checking header signatures (`MagicByteValidator`).
+   * On successful upload:
+     * Updates status to `UPLOADED`.
+     * Marks the session token as `used = true`.
+     * Enqueues `airtable_sync` and `discord_notify` jobs to BullMQ.
+     * Updates status to `READY_FOR_REVIEW`.
+   * On upload failure:
+     * Updates status to `FAILED`.
+
+---
+
+### 3. Core Component Tasks
+
+#### Component: Build & Scripts
+* [MODIFY] [package.json](file:///c:/Users/navap/Desktop/SubmitButton/package.json)
+  * Install dependencies: `pg`, `bullmq`, `ioredis`, `@aws-sdk/s3-request-presigner`.
+  * Add devDependencies: `@types/pg`.
+  * Add separate execution scripts:
+    * `"start:api": "node dist/api.js"`
+    * `"start:bot": "node dist/bot.js"`
+    * `"start:worker": "node dist/worker.js"`
+
+#### Component: Database & Redis Connection Layers
+* [NEW] [db.ts](file:///c:/Users/navap/Desktop/SubmitButton/src/shared/db.ts)
+  * Initializes the `pg` Connection Pool using `DATABASE_URL`.
+  * Implements table initialization queries at startup.
+  * Exports database access methods.
+* [NEW] [redis.ts](file:///c:/Users/navap/Desktop/SubmitButton/src/shared/redis.ts)
+  * Exports Redis client connection configured with `REDIS_URL`.
+* [NEW] [rateLimiter.ts](file:///c:/Users/navap/Desktop/SubmitButton/src/shared/rateLimiter.ts)
+  * Implements sliding-window rate-limiting using Redis sorted sets (`ZADD`, `ZREM`, `ZCARD`).
+
+#### Component: Token & Airtable Service Migration
+* [MODIFY] [token.ts](file:///c:/Users/navap/Desktop/SubmitButton/src/shared/token.ts)
+  * Migrate queries from `DatabaseSync` (SQLite) to PostgreSQL (`db.ts`).
+* [MODIFY] [airtable.ts](file:///c:/Users/navap/Desktop/SubmitButton/src/api/services/airtable.ts)
+  * Remove local `mock_submissions.db` SQLite configurations.
+  * In mock mode, fetch and insert records into PostgreSQL `creators` and `submissions` tables.
+
+#### Component: Queue Worker Migration
+* [MODIFY] [queue.ts](file:///c:/Users/navap/Desktop/SubmitButton/src/api/services/queue.ts)
+  * Replace the local loop queue runner with `Queue` and `Worker` classes from `bullmq`.
+* [NEW] [worker.ts](file:///c:/Users/navap/Desktop/SubmitButton/src/worker.ts)
+  * Worker process entrypoint running isolated tasks. Processes:
+    * `airtable_sync` (saves submissions, handling Airtable's 5 req/sec limit smoothly through worker concurrency locks).
+    * `discord_notify` (sends embeds using the bot client).
+* [NEW] [api.ts](file:///c:/Users/navap/Desktop/SubmitButton/src/api.ts)
+  * Entrypoint starting the Express API server only.
+* [NEW] [bot.ts](file:///c:/Users/navap/Desktop/SubmitButton/src/bot.ts)
+  * Entrypoint starting the Discord Bot listener only.
+
+#### Component: Discord Interaction Enhancements
+* [MODIFY] [interactionCreate.ts](file:///c:/Users/navap/Desktop/SubmitButton/src/bot/events/interactionCreate.ts)
+  * **Add Cooldown check**: Run a PostgreSQL query counting the user's generated tokens in the last 15 minutes. Reject if count $\ge 2$.
+  * Provide dynamic context mapping for redirects.
+
+#### Component: Express API Controllers
+* [MODIFY] [controllers.ts](file:///c:/Users/navap/Desktop/SubmitButton/src/api/controllers.ts)
+  * Refactor session retrieval to return the redirect URL: `https://discord.com/channels/${serverId}/${channelId}`.
+  * Implement `handleWebSubmissionInit` and `handleWebSubmissionUpload` controllers.
+  * Integrate Redis rate-limiting middleware.
+  * Implement signed URLs for file access.
+
+#### Component: Frontend Interface Updates
+* [MODIFY] [portal.html](file:///c:/Users/navap/Desktop/SubmitButton/public/portal.html)
+  * Add layout properties for mobile responsiveness.
+* [MODIFY] [portal.js](file:///c:/Users/navap/Desktop/SubmitButton/public/portal.js)
+  * Update form submission: First perform metadata initiation to `/api/web-submissions/init`, acquire `submissionId`, then proceed to upload file.
+  * Capture the server `redirectUrl` from session validation.
+  * Update the "Done" button listener to redirect back to the Discord channel.
+
+---
+
+## Verification Plan
+
+### Automated Verification
+* Run a local PostgreSQL and Redis environment via Docker (e.g. docker-compose).
+* Validate TypeScript build output: `npm run build`.
+
+### Manual Verification
+1. **Token Generation Cooldown**: Click the Discord "Submit Clip" button 3 times within 2 minutes. Ensure the 3rd attempt returns a cooldown notice.
+2. **Multi-Step Upload Lifecycle**: Upload a clip. Verify in the PostgreSQL console that the submission state cycles through `CREATED` -> `UPLOADING` -> `UPLOADED` -> `READY_FOR_REVIEW`.
+3. **Queue Processing**: Verify that the BullMQ worker picks up and processes the sync jobs asynchronously, updating Airtable and sending the Discord message.
+4. **Mobile Redirection**: Open the submission link on an Android/iOS device, complete the submission, click "Done", and verify it redirects back to the Discord channel/app.

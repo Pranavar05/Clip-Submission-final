@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clip Submission Portal</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="background-glow-top"></div>
+  <div class="background-glow-bottom"></div>
+
+  <div class="container">
+    <!-- 1. LOADING SCREEN -->
+    <div id="session-loader" class="card fade-in">
+      <div class="spinner"></div>
+      <h2>Verifying Submission Session...</h2>
+      <p>Verifying secure credentials. Please wait.</p>
+    </div>
+
+    <!-- 2. ERROR SCREEN -->
+    <div id="error-screen" class="card fade-in hidden">
+      <div class="icon-error">❌</div>
+      <h2 id="error-title">Invalid or Expired Link</h2>
+      <p id="error-message">This submission session has expired or is invalid. Please return to Discord and click "Submit Clip" again to request a new link.</p>
+    </div>
+
+    <!-- 3. MAIN FORM SCREEN -->
+    <div id="portal-form" class="card fade-in hidden">
+      <header>
+        <div class="logo">📤</div>
+        <h1>Clip Submission Portal</h1>
+        <p class="welcome-banner">Welcome, <span id="display-name" class="highlight-text">Clipper</span>!</p>
+        <div id="timer-banner" class="timer-banner hidden">
+          <span class="timer-icon">⏳</span> Link expires in <span id="time-remaining" class="time-remaining">10:00</span>
+        </div>
+        <p class="subtitle">Complete the fields below to submit your video clip.</p>
+      </header>
+
+      <form id="submission-form" novalidate>
+        <!-- File Upload Section -->
+        <div class="form-group">
+          <label class="field-label">Upload Video Clip <span class="required">*</span></label>
+          <div id="drop-zone" class="drop-zone">
+            <input type="file" id="file-input" accept=".mp4,.mov,.avi,.mkv,.webm" class="hidden-input">
+            <div class="drop-zone-content">
+              <span class="upload-icon">🎥</span>
+              <p class="primary-text">Drag & drop your file here or <span class="browse-link">browse files</span></p>
+              <p class="secondary-text">Supported: MP4, MOV, AVI, MKV, WEBM (Max 200MB)</p>
+            </div>
+            <div id="file-info" class="file-info hidden">
+              <div class="file-info-details">
+                <span class="file-badge">VIDEO</span>
+                <span id="file-name" class="file-name">filename.mp4</span>
+                <span id="file-size" class="file-size">(0.0 MB)</span>
+              </div>
+              <button type="button" id="remove-file-btn" class="remove-btn">Remove</button>
+            </div>
+          </div>
+          <span id="file-error" class="error-text hidden">Please select a valid video file.</span>
+        </div>
+
+        <!-- Creator Selection Dropdown -->
+        <div class="form-group">
+          <label for="creator-select" class="field-label">Creator Target <span class="required">*</span></label>
+          <select id="creator-select" name="creatorId" required>
+            <option value="" disabled selected>Loading creators list...</option>
+          </select>
+          <span id="creator-error" class="error-text hidden">Please select a creator.</span>
+        </div>
+
+        <!-- Clip Type Dropdown -->
+        <div class="form-group">
+          <label for="clip-type" class="field-label">Clip Type <span class="required">*</span></label>
+          <select id="clip-type" name="clipType" required>
+            <option value="" disabled selected>-- Select Clip Type --</option>
+            <option value="Raw">Raw (Unedited Footage)</option>
+            <option value="Edited">Edited (Polished compilation)</option>
+            <option value="Stolen">Stolen (Clipped from streams)</option>
+          </select>
+          <span id="type-error" class="error-text hidden">Please select a clip type.</span>
+        </div>
+
+        <!-- Description Note -->
+        <div class="form-group">
+          <label for="description" class="field-label">Description / Notes <span class="optional">(Optional)</span></label>
+          <textarea id="description" name="description" placeholder="Describe the clip or leave any notes..." rows="3"></textarea>
+        </div>
+
+        <!-- Submit Button -->
+        <button type="submit" id="submit-btn" class="submit-btn" disabled>Submit Clip</button>
+      </form>
+
+      <!-- 4. UPLOADING SCREEN -->
+      <div id="upload-overlay" class="overlay hidden">
+        <div class="overlay-content">
+          <div class="progress-circle">
+            <svg>
+              <circle cx="70" cy="70" r="60"></circle>
+              <circle cx="70" cy="70" r="60" id="progress-indicator"></circle>
+            </svg>
+            <div class="progress-text"><span id="progress-percent">0</span>%</div>
+          </div>
+          <h3>Uploading clip to server...</h3>
+          <p>Please keep this page open. Direct stream processing is active.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. SUCCESS SCREEN -->
+    <div id="success-screen" class="card fade-in hidden">
+      <div class="success-checkmark">
+        <div class="check-icon">
+          <span class="icon-line line-tip"></span>
+          <span class="icon-line line-long"></span>
+          <div class="icon-circle"></div>
+          <div class="icon-fix"></div>
+        </div>
+      </div>
+      <h2>Submission Successful!</h2>
+      <p class="success-message">Your clip has been processed and queued for database synchronization.</p>
+      <div class="success-details">
+        <p><strong>Submission ID:</strong> <span id="success-id" class="code-badge">recXYZ</span></p>
+      </div>
+      <p class="success-note">You can close this tab and return to Discord now.</p>
+      <button class="close-tab-btn">Done</button>
+    </div>
+  </div>
+
+  <script src="portal.js"></script>
+</body>
+</html>
