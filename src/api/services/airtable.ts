@@ -262,7 +262,6 @@ export class AirtableService {
       'Discord Username': payload.discordUser,
       'Discord Channel ID': payload.channelId,
       'Creator': [payload.creatorId],
-      'Note': payload.description || '',
       'R2 File URL': videoFileUrl,
       'Original Filename': videoFileName,
       'File Size (MB)': Number((videoSizeBytes / (1024 * 1024)).toFixed(2)),
@@ -272,10 +271,12 @@ export class AirtableService {
     };
 
     logger.info(`Submitting record in Airtable for user ID: ${payload.userId}, Submission ID: ${payload.submissionId}`);
+    logger.info(`Airtable write target table: "${config.airtable.submissionsTable}", fields: ${JSON.stringify(Object.keys(fields))}`);
 
     const writeOp = () => new Promise<string>((resolve, reject) => {
       base(config.airtable.submissionsTable).create([{ fields }], (err: any, records: any) => {
         if (err) {
+          logger.error(`Airtable API create error: ${err.message}`, { statusCode: err.statusCode, error: err.error, type: err.type });
           reject(err);
         } else if (!records || records.length === 0) {
           reject(new Error('Airtable write succeeded but returned no record.'));
