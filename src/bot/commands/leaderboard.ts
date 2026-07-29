@@ -11,7 +11,7 @@ export async function executeLeaderboard(interaction: ChatInputCommandInteractio
 
   try {
     const entries = await query<any>(
-      `SELECT c.id, c.discord_username, c.discord_user_id, c.clip_type, c.description, c.submitted_at,
+      `SELECT c.id, c.discord_username, c.user_id, c.clip_type, c.description, c.submitted_at,
               COALESCE(v.count, 0) as view_count
        FROM submissions c
        LEFT JOIN view_counts v ON c.id = v.submission_id

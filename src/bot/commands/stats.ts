@@ -9,7 +9,7 @@ export async function executeStats(interaction: ChatInputCommandInteraction): Pr
 
   try {
     const rows = await query<any>(
-      `SELECT c.id, c.discord_username, c.discord_user_id, c.clip_type, c.description, c.submitted_at, c.status,
+      `SELECT c.id, c.discord_username, c.user_id, c.clip_type, c.description, c.submitted_at, c.status,
               COALESCE(v.count, 0) as view_count, v.last_viewed_at
        FROM submissions c
        LEFT JOIN view_counts v ON c.id = v.submission_id
@@ -30,7 +30,7 @@ export async function executeStats(interaction: ChatInputCommandInteraction): Pr
       .setTitle(`📊 Clip Stats: \`${s.id}\``)
       .setColor('#5865F2')
       .addFields(
-        { name: '👤 Submitted By', value: `<@${s.discord_user_id}> (${s.discord_username})`, inline: true },
+        { name: '👤 Submitted By', value: `<@${s.user_id}> (${s.discord_username})`, inline: true },
         { name: '🎬 Clip Type', value: s.clip_type || 'N/A', inline: true },
         { name: '👁 Total Views', value: `**${views}**`, inline: true },
         { name: '📋 Status', value: s.status || 'Tracked', inline: true },

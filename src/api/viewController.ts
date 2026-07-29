@@ -60,7 +60,7 @@ export async function handleGetStats(req: Request, res: Response): Promise<void>
 
   try {
     const rows = await query(
-      `SELECT c.id, c.discord_username, c.discord_user_id, c.clip_type, c.description, c.submitted_at, c.status,
+      `SELECT c.id, c.discord_username, c.user_id, c.clip_type, c.description, c.submitted_at, c.status,
               COALESCE(v.count, 0) as view_count, v.last_viewed_at
        FROM submissions c
        LEFT JOIN view_counts v ON c.id = v.submission_id
@@ -91,7 +91,7 @@ export async function handleGetLeaderboard(req: Request, res: Response): Promise
     }
 
     const rows = await query(
-      `SELECT c.id, c.discord_username, c.discord_user_id, c.clip_type, c.description, c.submitted_at,
+      `SELECT c.id, c.discord_username, c.user_id, c.clip_type, c.description, c.submitted_at,
               COALESCE(v.count, 0) as view_count
        FROM submissions c
        LEFT JOIN view_counts v ON c.id = v.submission_id
