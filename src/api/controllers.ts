@@ -395,13 +395,13 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
           );
         });
 
-        // Idempotency check before triggering queues
-        const isDuplicate = await AirtableService.isDuplicateSubmission(submissionId);
-        if (isDuplicate) {
-          logCtx.warn(`Duplicate submission detected. Skipping queue dispatch.`);
-          res.status(200).json({ success: true, message: 'Submission received successfully.', submissionId });
-          return;
-        }
+        // // Idempotency check before triggering queues
+        // const isDuplicate = await AirtableService.isDuplicateSubmission(submissionId);
+        // if (isDuplicate) {
+        //   logCtx.warn(`Duplicate submission detected. Skipping queue dispatch.`);
+        //   res.status(200).json({ success: true, message: 'Submission received successfully.', submissionId });
+        //   return;
+        // }
 
         // Fetch active creators to map name
         const activeCreators = await AirtableService.getActiveCreators();
