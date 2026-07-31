@@ -524,6 +524,7 @@ export async function handleDirectUploadComplete(req: Request, res: Response): P
   const { sizeBytes } = req.body;
   const logCtx = getLoggerContext(requestId, submissionId).child({ module: 'handleDirectUploadComplete' });
 
+  let sub: any = null;
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -543,7 +544,7 @@ export async function handleDirectUploadComplete(req: Request, res: Response): P
       return;
     }
     
-    const sub = submissions[0];
+    sub = submissions[0];
     if (sub.token !== token) {
       res.status(403).json({ success: false, message: 'Unauthorized.', requestId });
       return;

@@ -386,11 +386,11 @@ export class AirtableService {
                   if (err2) {
                     reject(err2);
                   } else {
-                    resolve(records2 || []);
+                    resolve(records2 ? Array.from(records2) : []);
                   }
                 });
             } else {
-              resolve(records || []);
+              resolve(records ? Array.from(records) : []);
             }
           });
       });
