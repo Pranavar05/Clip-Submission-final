@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { query } from './db.js';
 import { logger } from './logger.js';
 import { TOKEN_EXPIRY } from './config.js';
+import { getCachedValue, setCachedValue } from './redis.js';
 
 export interface PortalSessionPayload {
   tokenId: string;
@@ -39,6 +40,10 @@ export async function encryptToken(payload: PortalSessionPayload): Promise<strin
     const pruneTime = new Date(Date.now() - 24 * 60 * 60 * 1000);
     await query('DELETE FROM upload_tokens WHERE expires_at < $1', [pruneTime]);
     
+    // Cache in Redis
+    const ttlSeconds = Math.max(1, Math.floor((payload.expiresAt - Date.now()) / 1000));
+    await setCachedValue(`portal_session:${token}`, payload, ttlSeconds);
+    
     return token;
   } catch (error) {
     logger.error('Error generating/saving upload token:', error);
@@ -57,12 +62,23 @@ export async function decryptToken(token: string): Promise<PortalSessionPayload 
       return null;
     }
 
+    const cacheKey = `portal_session:${token}`;
+    const cached = await getCachedValue<any>(cacheKey);
+    if (cached) {
+      if (cached === 'USED') {
+        return null;
+      }
+      return cached as PortalSessionPayload;
+    }
+
     const rows = await query(
       'SELECT * FROM upload_tokens WHERE token = $1 AND used = false',
       [token]
     );
     
     if (rows.length === 0) {
+      // Cache the lookup failure (negative cache) to avoid continuous DB hits
+      await setCachedValue(cacheKey, 'USED', 600);
       return null;
     }
     
@@ -71,10 +87,11 @@ export async function decryptToken(token: string): Promise<PortalSessionPayload 
     // Check expiration
     const expiresAtMs = new Date(row.expires_at).getTime();
     if (Date.now() > expiresAtMs) {
+      await setCachedValue(cacheKey, 'USED', 600);
       return null;
     }
     
-    return {
+    const payload: PortalSessionPayload = {
       tokenId: row.token,
       userId: row.user_id,
       discordUser: row.discord_user,
@@ -83,6 +100,11 @@ export async function decryptToken(token: string): Promise<PortalSessionPayload 
       channelId: row.channel_id,
       expiresAt: expiresAtMs
     };
+
+    const ttlSeconds = Math.max(1, Math.floor((expiresAtMs - Date.now()) / 1000));
+    await setCachedValue(cacheKey, payload, ttlSeconds);
+    
+    return payload;
   } catch (error) {
     logger.error('Error decrypting upload token:', error);
     return null;
@@ -98,6 +120,8 @@ export async function consumeToken(token: string, clientQuery?: any): Promise<Po
     if (!/^[0-9a-fA-F-]{36}$/.test(token)) {
       return null;
     }
+
+    const cacheKey = `portal_session:${token}`;
     const executeQuery = clientQuery || query;
     const rows = await executeQuery(
       'SELECT * FROM upload_tokens WHERE token = $1 AND used = false',
@@ -105,17 +129,22 @@ export async function consumeToken(token: string, clientQuery?: any): Promise<Po
     );
     
     if (rows.length === 0) {
+      await setCachedValue(cacheKey, 'USED', 600);
       return null;
     }
     
     const row = rows[0];
     const expiresAtMs = new Date(row.expires_at).getTime();
     if (Date.now() > expiresAtMs) {
+      await setCachedValue(cacheKey, 'USED', 600);
       return null;
     }
     
     // Mark as used immediately
     await executeQuery('UPDATE upload_tokens SET used = true WHERE token = $1', [token]);
+    
+    // Cache as USED immediately
+    await setCachedValue(cacheKey, 'USED', 600);
     
     return {
       tokenId: row.token,
@@ -142,6 +171,7 @@ export async function markTokenAsUsed(token: string): Promise<void> {
     }
 
     await query('UPDATE upload_tokens SET used = true WHERE token = $1', [token]);
+    await setCachedValue(`portal_session:${token}`, 'USED', 600);
   } catch (error) {
     logger.error('Error marking upload token as used:', error);
   }

@@ -12,6 +12,7 @@ import { ClipType, SubmissionPayload } from '../shared/types.js';
 import { sanitizeTextField, sanitizeFilename } from '../shared/sanitizer.js';
 import { query, generateSubmissionId, runTransaction } from '../shared/db.js';
 import { rateLimiter } from '../shared/rateLimiter.js';
+import { uploadCounter, uploadSizeHistogram } from './monitoring.js';
 
 // ─── Magic Byte validator Transform Stream ───────────────────────────────
 class MagicByteValidator extends Transform {
@@ -235,7 +236,7 @@ export async function handleWebSubmissionInit(req: Request, res: Response): Prom
 export async function handleWebSubmissionUpload(req: Request, res: Response): Promise<void> {
   const requestId = (req as any).requestId || 'unknown';
   const submissionId = req.params.submissionId;
-  const logCtx = getLoggerContext(requestId).child({ module: 'handleWebSubmissionUpload', submissionId });
+  const logCtx = getLoggerContext(requestId, submissionId).child({ module: 'handleWebSubmissionUpload' });
 
   try {
     logCtx.info(`Received streaming file upload request for submission`);
@@ -264,6 +265,7 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
     }
 
     const submission = submissions[0];
+    uploadCounter.inc({ status: 'attempt', type: submission.clip_type || 'unknown' });
     if (submission.status !== 'CREATED') {
       res.status(400).json({ success: false, message: `Submission is in invalid state: ${submission.status}`, requestId });
       return;
@@ -338,6 +340,7 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
     busboy.on('finish', async () => {
       try {
         if (isUploadAborted) {
+          uploadCounter.inc({ status: 'failed', type: submission.clip_type || 'unknown' });
           await runTransaction(async (clientQuery) => {
             await clientQuery("UPDATE submissions SET status = 'FAILED', updated_at = $1 WHERE id = $2", [new Date(), submissionId]);
             await clientQuery(
@@ -351,6 +354,7 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
         }
 
         if (!fileUploadPromise) {
+          uploadCounter.inc({ status: 'failed', type: submission.clip_type || 'unknown' });
           await runTransaction(async (clientQuery) => {
             await clientQuery("UPDATE submissions SET status = 'FAILED', updated_at = $1 WHERE id = $2", [new Date(), submissionId]);
             await clientQuery(
@@ -365,6 +369,8 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
 
         const uploadResult = await fileUploadPromise;
         logCtx.info(`R2 upload completed. Key: ${fileKey}`);
+        uploadCounter.inc({ status: 'success', type: submission.clip_type || 'unknown' });
+        uploadSizeHistogram.observe(uploadResult.sizeBytes);
 
         // Update database and write audit logs in a transaction
         await runTransaction(async (clientQuery) => {
@@ -455,6 +461,7 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
           submissionId
         });
       } catch (err: any) {
+        uploadCounter.inc({ status: 'failed', type: submission.clip_type || 'unknown' });
         logCtx.error(`Failed during upload completion: ${err.message}`, { stack: err.stack });
         await query('UPDATE submissions SET status = $1, updated_at = $2 WHERE id = $3', ['FAILED', new Date(), submissionId]);
         res.status(500).json({ success: false, message: err.message || 'Processing file failed.', requestId });
@@ -463,15 +470,180 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
 
     req.pipe(busboy);
   } catch (error: any) {
+    uploadCounter.inc({ status: 'failed', type: 'unknown' });
     logCtx.error(`Upload error: ${error.message}`);
     res.status(500).json({ success: false, message: 'Upload process initialization failed.', requestId });
   }
 }
 
-// ─── Legacy Handler (Error return) ──────────────────────────────────────────
-export async function handleSubmission(req: Request, res: Response): Promise<void> {
-  res.status(410).json({
-    success: false,
-    message: 'Direct Discord thread uploads are deprecated. Please submit via Web Portal.'
-  });
+// ─── Direct Browser to R2 Upload (Presigned URL) ───────────────────────────
+export async function handlePresignedUrl(req: Request, res: Response): Promise<void> {
+  const requestId = (req as any).requestId || 'unknown';
+  const submissionId = req.params.submissionId;
+  const { filename, mimeType } = req.body;
+  const logCtx = getLoggerContext(requestId, submissionId).child({ module: 'handlePresignedUrl' });
+
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ success: false, message: 'Missing authorization token.', requestId });
+      return;
+    }
+    const token = authHeader.split(' ')[1];
+
+    const submissions = await query('SELECT * FROM submissions WHERE id = $1', [submissionId]);
+    if (submissions.length === 0) {
+      res.status(404).json({ success: false, message: 'Submission not found.', requestId });
+      return;
+    }
+    const submission = submissions[0];
+    if (submission.token !== token) {
+      res.status(403).json({ success: false, message: 'Unauthorized.', requestId });
+      return;
+    }
+
+    const safeFilename = sanitizeFilename(filename);
+    const fileKey = `submissions/${Date.now()}_${submissionId}_${safeFilename}`;
+    
+    // Update DB with key
+    await query('UPDATE submissions SET object_key = $1, original_filename = $2, status = $3, updated_at = $4 WHERE id = $5', 
+      [fileKey, safeFilename, 'UPLOADING', new Date(), submissionId]);
+
+    const url = await R2StorageService.generatePresignedUploadUrl(fileKey, mimeType, 3600);
+    
+    res.status(200).json({ success: true, url, fileKey, originalFilename: safeFilename });
+  } catch (err: any) {
+    logCtx.error(`Failed to generate presigned URL: ${err.message}`);
+    res.status(500).json({ success: false, message: 'Failed to generate upload URL.', requestId });
+  }
 }
+
+export async function handleDirectUploadComplete(req: Request, res: Response): Promise<void> {
+  const requestId = (req as any).requestId || 'unknown';
+  const submissionId = req.params.submissionId;
+  const { sizeBytes } = req.body;
+  const logCtx = getLoggerContext(requestId, submissionId).child({ module: 'handleDirectUploadComplete' });
+
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ success: false, message: 'Missing authorization token.', requestId });
+      return;
+    }
+    const token = authHeader.split(' ')[1];
+
+    const submissions = await query(`
+      SELECT s.*, t.discord_user, t.display_name, t.user_id as t_user_id, t.server_id, t.channel_id 
+      FROM submissions s 
+      JOIN upload_tokens t ON s.token = t.token 
+      WHERE s.id = $1`, [submissionId]);
+
+    if (submissions.length === 0) {
+      res.status(404).json({ success: false, message: 'Submission not found.', requestId });
+      return;
+    }
+    
+    const sub = submissions[0];
+    if (sub.token !== token) {
+      res.status(403).json({ success: false, message: 'Unauthorized.', requestId });
+      return;
+    }
+
+    await runTransaction(async (clientQuery) => {
+      await clientQuery(
+        `UPDATE submissions SET size_bytes = $1, status = $2, updated_at = $3 WHERE id = $4`,
+        [sizeBytes, 'UPLOADED', new Date(), submissionId]
+      );
+      await clientQuery(
+        `INSERT INTO audit_logs (action, actor_id, actor_username, details, created_at) VALUES ($1, $2, $3, $4, $5)`,
+        ['SUBMISSION_UPLOAD_FINISHED_DIRECT', sub.t_user_id, sub.discord_user, JSON.stringify({ submissionId, sizeBytes }), new Date()]
+      );
+    });
+
+    const activeCreators = await AirtableService.getActiveCreators();
+    const creatorName = activeCreators.find(c => c.id === sub.creator_id)?.name || 'Unknown Creator';
+
+    const submissionPayload: SubmissionPayload = {
+      submissionId,
+      discordUser: sub.discord_user,
+      displayName: sub.display_name,
+      userId: sub.t_user_id,
+      creatorId: sub.creator_id,
+      clipType: sub.clip_type,
+      description: sub.description,
+      submittedAt: sub.submitted_at,
+      serverId: sub.server_id,
+      channelId: sub.channel_id
+    };
+
+    await queue.enqueue('airtable_write', {
+      submissionPayload,
+      fileKey: sub.object_key,
+      sizeBytes,
+      originalname: sub.original_filename,
+      requestId
+    });
+
+    const sizeMb = (sizeBytes / (1024 * 1024)).toFixed(2);
+    await queue.enqueue('discord_notify', {
+      channelId: sub.channel_id,
+      userId: sub.t_user_id,
+      displayName: sub.display_name,
+      discordUser: sub.discord_user,
+      clipType: sub.clip_type,
+      filename: sub.original_filename,
+      sizeMb,
+      description: sub.description ? `${creatorName} - ${sub.description}` : `${creatorName}`,
+      submissionId,
+      requestId
+    });
+
+    await query('UPDATE submissions SET status = $1, updated_at = $2 WHERE id = $3', ['READY_FOR_REVIEW', new Date(), submissionId]);
+
+    uploadCounter.inc({ status: 'success', type: sub.clip_type || 'unknown' });
+    uploadSizeHistogram.observe(Number(sizeBytes));
+
+    res.status(200).json({ success: true, message: 'Direct upload completed successfully.' });
+  } catch (err: any) {
+    uploadCounter.inc({ status: 'failed', type: (sub && sub.clip_type) || 'unknown' });
+    logCtx.error(`Failed to complete direct upload: ${err.message}`);
+    res.status(500).json({ success: false, message: 'Failed to complete upload.', requestId });
+  }
+}
+
+export async function handleMockUploadDirect(req: Request, res: Response): Promise<void> {
+  const key = req.query.key as string;
+  if (!key) {
+    res.status(400).json({ success: false, message: 'Missing key parameter' });
+    return;
+  }
+  
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    
+    const filename = path.basename(key);
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    const targetPath = path.join(uploadsDir, filename);
+    
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+
+    const writeStream = fs.createWriteStream(targetPath);
+    req.pipe(writeStream);
+    
+    writeStream.on('finish', () => {
+      logger.info(`[MOCK STORAGE] Direct mock upload complete: ${filename}`);
+      res.status(200).send('Upload mock complete');
+    });
+    
+    writeStream.on('error', (err: any) => {
+      logger.error(`[MOCK STORAGE] Direct mock upload write error: ${err.message}`);
+      res.status(500).send(err.message);
+    });
+  } catch (err: any) {
+    res.status(500).send(err.message);
+  }
+}
+

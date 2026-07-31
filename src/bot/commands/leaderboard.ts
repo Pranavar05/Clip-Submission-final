@@ -1,6 +1,7 @@
 import { ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { query } from '../../shared/db.js';
 import { logger } from '../../shared/logger.js';
+import { AirtableService } from '../../api/services/airtable.js';
 
 const TROPHY: Record<number, string> = { 0: '🏆', 1: '🥈', 2: '🥉' };
 
@@ -10,15 +11,7 @@ export async function executeLeaderboard(interaction: ChatInputCommandInteractio
   const limit = interaction.options.getInteger('limit') ?? 10;
 
   try {
-    const entries = await query<any>(
-      `SELECT c.id, c.discord_username, c.user_id, c.clip_type, c.description, c.submitted_at,
-              COALESCE(v.count, 0) as view_count
-       FROM submissions c
-       LEFT JOIN view_counts v ON c.id = v.submission_id
-       ORDER BY view_count DESC, c.submitted_at ASC
-       LIMIT $1`,
-      [limit]
-    );
+    const entries = await AirtableService.getLeaderboard(limit);
 
     if (!entries || !entries.length) {
       await interaction.editReply({ content: '📭 No clips have been tracked yet. Submit some clips first!' });

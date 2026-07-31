@@ -250,6 +250,12 @@ export async function initDb(): Promise<void> {
     logger.info('Initializing PostgreSQL connection pool...');
     pgPool = new pg.Pool({
       connectionString: config.databaseUrl,
+      max: process.env.DB_POOL_MAX ? parseInt(process.env.DB_POOL_MAX, 10) : 20,
+      idleTimeoutMillis: process.env.DB_IDLE_TIMEOUT ? parseInt(process.env.DB_IDLE_TIMEOUT, 10) : 30000,
+      connectionTimeoutMillis: 5000,
+      ssl: config.databaseUrl.includes('neon.tech') || (config.databaseUrl.startsWith('postgres') && !config.databaseUrl.includes('localhost') && !config.databaseUrl.includes('127.0.0.1'))
+        ? { rejectUnauthorized: false }
+        : undefined,
     });
     await runMigrations();
     logger.info('PostgreSQL tables and migrations initialized successfully.');

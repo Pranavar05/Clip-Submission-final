@@ -42,17 +42,31 @@ export async function handleInteractionCreate(interaction: Interaction): Promise
 
         // 1. Validate Clipper Role
         if (config.discord.clipperRoleId) {
-          const member = interaction.member;
           let hasRole = false;
           let rolesList: string[] = [];
+          const { getRedisClient } = await import('../../shared/redis.js');
+          const redis = getRedisClient();
+          const cacheKey = `member_roles:${userId}`;
 
-          if (member) {
-            if (Array.isArray(member.roles)) {
-              rolesList = member.roles;
+          if (redis) {
+            const cachedRoles = await redis.get(cacheKey);
+            if (cachedRoles) {
+              rolesList = JSON.parse(cachedRoles);
               hasRole = rolesList.includes(config.discord.clipperRoleId);
-            } else if (member.roles && 'cache' in member.roles) {
-              rolesList = (member.roles.cache as any).map((r: any) => r.id);
-              hasRole = (member.roles.cache as any).has(config.discord.clipperRoleId);
+            }
+          }
+
+          if (rolesList.length === 0) {
+            try {
+              const guild = await interaction.client.guilds.fetch(interaction.guildId!);
+              const member = await guild.members.fetch(userId);
+              rolesList = Array.from(member.roles.cache.keys());
+              hasRole = rolesList.includes(config.discord.clipperRoleId);
+              if (redis) {
+                await redis.set(cacheKey, JSON.stringify(rolesList), 'EX', 300);
+              }
+            } catch (err: any) {
+              logger.error(`Failed to fetch member roles for caching: ${err.message}`);
             }
           }
 

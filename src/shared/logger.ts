@@ -3,9 +3,14 @@ import winston from 'winston';
 const { combine, timestamp, printf, colorize, errors, json } = winston.format;
 
 // Custom log format for development / human readable console logs
-const developmentFormat = printf(({ level, message, timestamp, stack, requestId, ...metadata }) => {
-  const reqPart = requestId ? ` [Req: ${requestId}]` : '';
-  let msg = `[${timestamp}] [${level}]${reqPart}: ${message}`;
+const developmentFormat = printf(({ level, message, timestamp, stack, requestId, submissionId, queueId, workerId, ...metadata }) => {
+  let contextPart = '';
+  if (requestId) contextPart += ` [Req: ${requestId}]`;
+  if (submissionId) contextPart += ` [Sub: ${submissionId}]`;
+  if (queueId) contextPart += ` [Queue: ${queueId}]`;
+  if (workerId) contextPart += ` [Worker: ${workerId}]`;
+
+  let msg = `[${timestamp}] [${level}]${contextPart}: ${message}`;
   if (stack) {
     msg += `\nStack: ${stack}`;
   }
@@ -47,14 +52,15 @@ export const logger = winston.createLogger({
 /**
  * Utility to construct a logging context with a Correlation ID (Request ID)
  */
-export function getLoggerContext(requestId: string) {
+export function getLoggerContext(requestId: string, submissionId?: string, queueId?: string, workerId?: string) {
   return {
     child: (metadata: Record<string, any>) => {
+      const ids = { requestId, submissionId, queueId, workerId };
       return {
-        info: (msg: string, extra: Record<string, any> = {}) => logger.info(msg, { requestId, ...metadata, ...extra }),
-        debug: (msg: string, extra: Record<string, any> = {}) => logger.debug(msg, { requestId, ...metadata, ...extra }),
-        warn: (msg: string, extra: Record<string, any> = {}) => logger.warn(msg, { requestId, ...metadata, ...extra }),
-        error: (msg: string, extra: Record<string, any> = {}) => logger.error(msg, { requestId, ...metadata, ...extra }),
+        info: (msg: string, extra: Record<string, any> = {}) => logger.info(msg, { ...ids, ...metadata, ...extra }),
+        debug: (msg: string, extra: Record<string, any> = {}) => logger.debug(msg, { ...ids, ...metadata, ...extra }),
+        warn: (msg: string, extra: Record<string, any> = {}) => logger.warn(msg, { ...ids, ...metadata, ...extra }),
+        error: (msg: string, extra: Record<string, any> = {}) => logger.error(msg, { ...ids, ...metadata, ...extra }),
       };
     }
   };

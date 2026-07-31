@@ -1,4 +1,4 @@
-import { S3Client, HeadBucketCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, HeadBucketCommand, GetObjectCommand, PutObjectCommand, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable, Transform, TransformCallback } from 'stream';
@@ -157,6 +157,83 @@ export class R2StorageService {
       stream.destroy();
       throw err;
     }
+  }
+
+  /**
+   * Generates a signed URL for a direct single-part upload.
+   */
+  static async generatePresignedUploadUrl(key: string, contentType: string, expiresInSeconds = 3600): Promise<string> {
+    if (config.mockStorage) {
+      logger.info(`[MOCK STORAGE] Simulating presigned upload URL for key: ${key}`);
+      return `${config.apiBaseUrl}/api/web-submissions/mock-upload?key=${encodeURIComponent(key)}`;
+    }
+
+    const client = this.getClient();
+    const command = new PutObjectCommand({
+      Bucket: config.r2.bucketName,
+      Key: key,
+      ContentType: contentType,
+    });
+    return await getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+  }
+
+  /**
+   * Initializes a multipart upload and returns the UploadId.
+   */
+  static async createMultipartUpload(key: string, contentType: string): Promise<string> {
+    const client = this.getClient();
+    const command = new CreateMultipartUploadCommand({
+      Bucket: config.r2.bucketName,
+      Key: key,
+      ContentType: contentType,
+    });
+    const response = await client.send(command);
+    return response.UploadId!;
+  }
+
+  /**
+   * Generates a signed URL for a specific part in a multipart upload.
+   */
+  static async getPresignedUrlForPart(key: string, uploadId: string, partNumber: number, expiresInSeconds = 3600): Promise<string> {
+    const client = this.getClient();
+    const command = new UploadPartCommand({
+      Bucket: config.r2.bucketName,
+      Key: key,
+      UploadId: uploadId,
+      PartNumber: partNumber,
+    });
+    return await getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+  }
+
+  /**
+   * Completes a multipart upload using the parts uploaded.
+   */
+  static async completeMultipartUpload(key: string, uploadId: string, parts: { ETag: string; PartNumber: number }[]): Promise<string> {
+    const client = this.getClient();
+    const command = new CompleteMultipartUploadCommand({
+      Bucket: config.r2.bucketName,
+      Key: key,
+      UploadId: uploadId,
+      MultipartUpload: { Parts: parts },
+    });
+    await client.send(command);
+    
+    return config.r2.publicUrl 
+      ? `${config.r2.publicUrl.replace(/\/$/, '')}/${key}`
+      : `https://${config.r2.bucketName}.r2.cloudflarestorage.com/${key}`;
+  }
+
+  /**
+   * Aborts a multipart upload.
+   */
+  static async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+    const client = this.getClient();
+    const command = new AbortMultipartUploadCommand({
+      Bucket: config.r2.bucketName,
+      Key: key,
+      UploadId: uploadId,
+    });
+    await client.send(command);
   }
 
   /**

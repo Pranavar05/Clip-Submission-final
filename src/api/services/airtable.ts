@@ -265,6 +265,7 @@ export class AirtableService {
       'R2 File URL': videoFileUrl,
       'Original Filename': videoFileName,
       'File Size (MB)': Number((videoSizeBytes / (1024 * 1024)).toFixed(2)),
+      'Description': payload.description || '',
       'Queue Status': 'Completed',
       'Created At': payload.submittedAt,
       'Updated At': new Date().toISOString()
@@ -337,6 +338,74 @@ export class AirtableService {
       logger.info(`Successfully updated views in Airtable for Submission ID: ${submissionId} to ${views}`);
     } catch (error: any) {
       logger.error(`Failed to update views in Airtable for Submission ID ${submissionId}:`, error);
+    }
+  }
+
+  /**
+   * Fetches leaderboard from Airtable View "Leaderboard"
+   */
+  static async getLeaderboard(limit: number = 10): Promise<any[]> {
+    const dbFallback = async () => {
+      logger.info('Falling back to database for leaderboard query...');
+      return query<any>(
+        `SELECT c.id, c.discord_username, c.user_id, c.clip_type, c.description, c.submitted_at,
+                COALESCE(v.count, 0) as view_count
+         FROM submissions c
+         LEFT JOIN view_counts v ON c.id = v.submission_id
+         ORDER BY view_count DESC, c.submitted_at ASC
+         LIMIT $1`,
+        [limit]
+      );
+    };
+
+    if (config.mockAirtable) {
+      return dbFallback();
+    }
+
+    try {
+      const base = this.getBase();
+      const fetchOp = () => new Promise<any[]>((resolve, reject) => {
+        // Try querying the View "Leaderboard" first
+        base(config.airtable.submissionsTable)
+          .select({
+            view: 'Leaderboard',
+            maxRecords: limit,
+            fields: ['Submission ID', 'Discord Username', 'Discord User ID', 'Clip Type', 'Views']
+          })
+          .firstPage((err, records) => {
+            if (err) {
+              logger.warn(`Failed to query view "Leaderboard" (${err.message}). Trying sorted table query...`);
+              // Try querying the table directly and sorting by Views DESC
+              base(config.airtable.submissionsTable)
+                .select({
+                  maxRecords: limit,
+                  sort: [{ field: 'Views', direction: 'desc' }],
+                  fields: ['Submission ID', 'Discord Username', 'Discord User ID', 'Clip Type', 'Views']
+                })
+                .firstPage((err2, records2) => {
+                  if (err2) {
+                    reject(err2);
+                  } else {
+                    resolve(records2 || []);
+                  }
+                });
+            } else {
+              resolve(records || []);
+            }
+          });
+      });
+
+      const records = await this.executeWithRetry(fetchOp);
+      return records.map(r => ({
+        id: r.get('Submission ID') as string,
+        discord_username: r.get('Discord Username') as string,
+        user_id: r.get('Discord User ID') as string,
+        clip_type: r.get('Clip Type') as string,
+        view_count: r.get('Views') as number || 0
+      }));
+    } catch (error: any) {
+      logger.error(`Failed to fetch leaderboard from Airtable: ${error.message}`);
+      return dbFallback();
     }
   }
 

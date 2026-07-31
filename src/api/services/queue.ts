@@ -61,6 +61,10 @@ class SubmissionQueue {
   public getStats(): { pending: number; processing: number; completed: number; dlq: number } {
     return { pending: 0, processing: 0, completed: 0, dlq: 0 };
   }
+
+  public get bullQueue(): Queue | null {
+    return bullQueue;
+  }
 }
 
 export const queue = new SubmissionQueue();

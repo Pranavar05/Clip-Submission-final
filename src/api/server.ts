@@ -4,6 +4,7 @@ import path from 'path';
 import helmet from 'helmet';
 import * as Sentry from '@sentry/node';
 import router from './routes.js';
+import { setupDashboards } from './dashboards.js';
 import { config } from '../shared/config.js';
 import { logger } from '../shared/logger.js';
 
@@ -66,6 +67,9 @@ export function createApiServer(): Express {
 
   // Mount routes
   app.use('/api', router);
+
+  // Setup Queue Dashboard
+  setupDashboards(app);
 
   // 4. Safe Global Error Handler (never leaks internal paths or stack traces)
   app.use((err: any, req: Request, res: Response, next: NextFunction) => {

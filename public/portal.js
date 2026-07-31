@@ -298,50 +298,104 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function uploadFile(subId) {
-    const formData = new FormData();
-    formData.append('video', selectedFile);
-
-    const xhr = new XMLHttpRequest();
-    
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable) {
-        const percent = Math.round((e.loaded / e.total) * 100);
-        progressPercent.textContent = percent;
+    // 1. Fetch Presigned upload URL
+    fetch(`/api/web-submissions/presign/${subId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        filename: selectedFile.name,
+        mimeType: selectedFile.type || 'video/mp4'
+      })
+    })
+    .then(response => {
+      if (!response.ok) {
+        return response.json().then(data => {
+          throw new Error(data.message || 'Presigned URL generation failed');
+        });
+      }
+      return response.json();
+    })
+    .then(data => {
+      if (data.success && data.url) {
+        // 2. Perform direct upload via PUT request
+        const xhr = new XMLHttpRequest();
         
-        const circumference = 2 * Math.PI * 60;
-        const offset = circumference - (percent / 100) * circumference;
-        progressIndicator.style.strokeDashoffset = offset;
-      }
-    });
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            progressPercent.textContent = percent;
+            
+            const circumference = 2 * Math.PI * 60;
+            const offset = circumference - (percent / 100) * circumference;
+            progressIndicator.style.strokeDashoffset = offset;
+          }
+        });
 
-    xhr.addEventListener('load', () => {
+        xhr.addEventListener('load', () => {
+          if (xhr.status === 200) {
+            // 3. Mark submission as complete on our API
+            completeDirectUpload(subId);
+          } else {
+            uploadOverlay.classList.add('hidden');
+            showRecoverableUploadError(`Direct upload failed with status ${xhr.status}.`);
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          uploadOverlay.classList.add('hidden');
+          showRecoverableUploadError('Direct upload network failure. Please try again.');
+        });
+
+        xhr.open('PUT', data.url);
+        // Note: Do NOT set Authorization header for S3 PUT, but set Content-Type
+        xhr.setRequestHeader('Content-Type', selectedFile.type || 'video/mp4');
+        xhr.send(selectedFile);
+      } else {
+        throw new Error('No presigned URL returned.');
+      }
+    })
+    .catch(err => {
       uploadOverlay.classList.add('hidden');
-      
-      let response = {};
-      try {
-        response = JSON.parse(xhr.responseText);
-      } catch(e) {
-        response = { success: false, message: 'Invalid response signature from server.' };
-      }
+      showRecoverableUploadError(err.message || 'Failed to request direct upload credentials.');
+    });
+  }
 
-      if (xhr.status === 200 && response.success) {
+  function completeDirectUpload(subId) {
+    fetch(`/api/web-submissions/complete/${subId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        sizeBytes: selectedFile.size
+      })
+    })
+    .then(response => {
+      uploadOverlay.classList.add('hidden');
+      if (!response.ok) {
+        return response.json().then(data => {
+          throw new Error(data.message || 'Finalization failed');
+        });
+      }
+      return response.json();
+    })
+    .then(data => {
+      if (data.success) {
         if (countdownInterval) clearInterval(countdownInterval);
         portalForm.classList.add('hidden');
         successScreen.classList.remove('hidden');
-        successId.textContent = response.submissionId || subId;
+        successId.textContent = subId;
       } else {
-        showRecoverableUploadError(response.message || 'Upload failed. Please try again.');
+        throw new Error(data.message || 'Finalization failed');
       }
+    })
+    .catch(err => {
+      showRecoverableUploadError(err.message || 'Failed to finalize submission after upload.');
     });
-
-    xhr.addEventListener('error', () => {
-      uploadOverlay.classList.add('hidden');
-      showRecoverableUploadError('Connection lost or network failure. Please verify connection and retry.');
-    });
-
-    xhr.open('POST', `/api/web-submissions/upload/${subId}`);
-    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    xhr.send(formData);
   }
 
   function showRecoverableUploadError(msg) {

@@ -50,13 +50,23 @@ router.get('/creators', handleCreators);
 // Web Portal submission initiation
 router.post('/web-submissions/init', handleWebSubmissionInit);
 
-// Web Portal submission file upload
+// Web Portal submission file upload (Streaming)
 router.post('/web-submissions/upload/:submissionId', handleWebSubmissionUpload);
+
+// Web Portal submission direct R2 upload (Presigned URLs)
+import { handlePresignedUrl, handleDirectUploadComplete, handleMockUploadDirect } from './controllers.js';
+router.post('/web-submissions/presign/:submissionId', handlePresignedUrl);
+router.post('/web-submissions/complete/:submissionId', handleDirectUploadComplete);
+router.put('/web-submissions/mock-upload', handleMockUploadDirect);
 
 // View Tracking & Leaderboard
 router.post('/view/:id', handleIncrementView);
 router.get('/stats/:id', handleGetStats);
 router.get('/leaderboard', handleGetLeaderboard);
+
+// Prometheus Metrics
+import { handleMetrics } from './monitoring.js';
+router.get('/metrics', handleMetrics);
 
 // Health check endpoint (performs connections checks for Database, Airtable, R2, Discord client, and queue)
 router.get('/health', async (req: Request, res: Response) => {
