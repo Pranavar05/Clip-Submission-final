@@ -278,7 +278,21 @@ export class AirtableService {
       base(config.airtable.submissionsTable).create([{ fields }], (err: any, records: any) => {
         if (err) {
           logger.error(`Airtable API create error: ${err.message}`, { statusCode: err.statusCode, error: err.error, type: err.type });
-          reject(err);
+          if (err.message && err.message.includes('Unknown field name: "Description"')) {
+            logger.warn('Airtable Submissions table is missing the "Description" field. Retrying without Description field...');
+            const { Description, ...fieldsWithoutDesc } = fields;
+            base(config.airtable.submissionsTable).create([{ fields: fieldsWithoutDesc }], (err2: any, records2: any) => {
+              if (err2) {
+                reject(err2);
+              } else if (!records2 || records2.length === 0) {
+                reject(new Error('Airtable write succeeded but returned no record.'));
+              } else {
+                resolve(records2[0].id);
+              }
+            });
+          } else {
+            reject(err);
+          }
         } else if (!records || records.length === 0) {
           reject(new Error('Airtable write succeeded but returned no record.'));
         } else {
