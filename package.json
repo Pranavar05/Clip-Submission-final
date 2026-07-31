@@ -2,6 +2,9 @@
   "name": "discord-clip-submission-system",
   "version": "1.0.0",
   "description": "Scalable Discord Bot and REST API for video clip submissions",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
