@@ -32,7 +32,7 @@ export function createApiServer(): Express {
         "font-src": ["'self'", "https://fonts.gstatic.com"],
         "media-src": ["'self'", "*"], // Allow video preview from any origin
         "img-src": ["'self'", "data:"],
-        "connect-src": ["'self'"]
+        "connect-src": ["'self'", "https://*.r2.cloudflarestorage.com"]
       }
     }
   }));
