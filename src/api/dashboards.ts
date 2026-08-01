@@ -12,7 +12,7 @@ export function setupDashboards(app: any) {
 
   // Basic auth middleware for /admin routes
   const adminAuth = basicAuth({
-    users: { [process.env.ADMIN_USER || 'admin']: process.env.ADMIN_PASS || 'admin123' },
+    users: { [process.env.ADMIN_USER || 'navaneeth']: process.env.ADMIN_PASS || 'Navaneethmp007' },
     challenge: true,
     realm: 'Admin Area'
   });
