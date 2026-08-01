@@ -97,78 +97,35 @@ export class AirtableService {
 
     try {
       const base = this.getBase();
-      
-      // Strategy: Try dedicated Creators table first. If it doesn't exist (403/404),
-      // fall back to pulling unique creator names from the Campaigns table.
       let activeCreators: { id: string; name: string }[] = [];
 
-      try {
-        logger.info('Attempting to fetch creators from dedicated Creators table...');
-        const fetchCreatorsOp = (useFilter: boolean) => new Promise<{ id: string; name: string }[]>((resolve, reject) => {
-          const records: { id: string; name: string }[] = [];
-          const selectOptions: any = { fields: ['Name'] };
-          if (useFilter) {
-            selectOptions.filterByFormula = `{Status} = 'Active'`;
-          }
-          
-          base(config.airtable.creatorsTable)
-            .select(selectOptions)
-            .eachPage(
-              (pageRecords, fetchNextPage) => {
-                pageRecords.forEach(rec => {
-                  const name = rec.get('Name') as string;
-                  if (name) records.push({ id: rec.id, name });
-                });
-                fetchNextPage();
-              },
-              (err) => {
-                if (err) reject(err);
-                else resolve(records);
-              }
-            );
-        });
+      logger.info(`Attempting to fetch creators from ${config.airtable.teamMembersTable} table...`);
+      const fetchCreatorsOp = () => new Promise<{ id: string; name: string }[]>((resolve, reject) => {
+        const records: { id: string; name: string }[] = [];
+        base(config.airtable.teamMembersTable)
+          .select({
+            // Fetch if Status is not Inactive (includes empty/blank and Active)
+            filterByFormula: `NOT({Status} = 'Inactive')`,
+            fields: ['Name']
+          })
+          .eachPage(
+            (pageRecords, fetchNextPage) => {
+              pageRecords.forEach(rec => {
+                const name = rec.get('Name') as string;
+                if (name) records.push({ id: rec.id, name });
+              });
+              fetchNextPage();
+            },
+            (err) => {
+              if (err) reject(err);
+              else resolve(records);
+            }
+          );
+      });
 
-        try {
-          activeCreators = await this.executeWithRetry(() => fetchCreatorsOp(true), 1);
-        } catch (filterErr: any) {
-          logger.warn(`Failed to fetch creators with Status filter (${filterErr.message}). Retrying without filter...`);
-          activeCreators = await this.executeWithRetry(() => fetchCreatorsOp(false), 1);
-        }
-        logger.info(`Fetched ${activeCreators.length} creators from Creators table.`);
-      } catch (creatorsErr: any) {
-        // Creators table doesn't exist yet — fall back to Campaigns table
-        logger.warn(`Creators table not available (${creatorsErr.statusCode || creatorsErr.message}). Falling back to Campaigns table...`);
-        
-        const fetchCampaignsOp = () => new Promise<{ id: string; name: string }[]>((resolve, reject) => {
-          const records: { id: string; name: string }[] = [];
-          const seenNames = new Set<string>();
-          
-          base('Campaigns')
-            .select({
-              filterByFormula: `{Status} = 'Active'`,
-              fields: ['Streamer/Creator', 'Campaign Name']
-            })
-            .eachPage(
-              (pageRecords, fetchNextPage) => {
-                pageRecords.forEach(rec => {
-                  const creatorName = (rec.get('Streamer/Creator') as string || '').trim();
-                  if (creatorName && !seenNames.has(creatorName)) {
-                    seenNames.add(creatorName);
-                    records.push({ id: rec.id, name: creatorName });
-                  }
-                });
-                fetchNextPage();
-              },
-              (err) => {
-                if (err) reject(err);
-                else resolve(records);
-              }
-            );
-        });
-        activeCreators = await this.executeWithRetry(fetchCampaignsOp);
-        logger.info(`Fetched ${activeCreators.length} unique creators from Campaigns fallback.`);
-      }
-      
+      activeCreators = await this.executeWithRetry(fetchCreatorsOp);
+      logger.info(`Fetched ${activeCreators.length} creators from ${config.airtable.teamMembersTable} table.`);
+
       // Sync fetched creators to local database to satisfy foreign key constraints
       for (const creator of activeCreators) {
         await query(
@@ -186,8 +143,8 @@ export class AirtableService {
 
       logger.info(`Successfully cached ${activeCreators.length} active creators.`);
       return activeCreators;
-    } catch (error) {
-      logger.error('Failed to fetch creators list from Airtable:', error);
+    } catch (error: any) {
+      logger.error('Failed to fetch creators list from Airtable:', error.message);
       
       if (this.creatorsCache) {
         logger.warn('Serving stale creators list cache from memory.');
@@ -504,7 +461,7 @@ export class AirtableService {
     try {
       const base = this.getBase();
       const testOp = () => new Promise<boolean>((resolve, reject) => {
-        base(config.airtable.creatorsTable)
+        base(config.airtable.teamMembersTable)
           .select({ maxRecords: 1 })
           .firstPage((err, records) => {
             if (err) reject(err);
