@@ -87,7 +87,7 @@ async function updateAirtableRecordsBatched(table: string, updates: { id: string
     const chunk = updates.slice(i, i + CHUNK_SIZE);
     try {
       await new Promise<void>((resolve, reject) => {
-        base(table).update(chunk, (err) => {
+        base(table).update(chunk, (err: any) => {
           if (err) reject(err);
           else resolve();
         });
