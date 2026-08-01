@@ -3,10 +3,8 @@ import { query } from '../../shared/db.js';
 import { logger } from '../../shared/logger.js';
 import { AirtableService } from '../../api/services/airtable.js';
 
-const TROPHY: Record<number, string> = { 0: '🏆', 1: '🥈', 2: '🥉' };
-
 export async function executeLeaderboard(interaction: ChatInputCommandInteraction): Promise<void> {
-  await interaction.deferReply();
+  await interaction.deferReply({ ephemeral: true });
 
   const limit = interaction.options.getInteger('limit') ?? 10;
 
@@ -19,34 +17,44 @@ export async function executeLeaderboard(interaction: ChatInputCommandInteractio
     }
 
     const topThreeEmojis = ['🥇', '🥈', '🥉'];
-    const lines: string[] = [];
+
+    // Build fields: one field per entry with bold label + value layout
+    const fields: { name: string; value: string; inline: boolean }[] = [];
 
     entries.forEach((entry, i) => {
       const views = Number(entry.view_count).toLocaleString();
       const type = entry.clip_type || 'Unknown';
       const userMention = `<@${entry.user_id}>`;
 
+      let rankLabel: string;
       if (i < 3) {
-        // Special highlighted format for top 3
-        const emoji = topThreeEmojis[i];
-        lines.push(
-          `${emoji} **#${i + 1}** • ${userMention} (\`${entry.id}\`)\n` +
-          `┗ 🎬 *${type}*  •  👁️ **${views}** views\n`
-        );
+        rankLabel = `${topThreeEmojis[i]} Rank #${i + 1}`;
       } else {
-        // Divider line between top 3 and runner-ups
-        if (i === 3) {
-          lines.push('⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n**Runner-Ups:**');
-        }
-        lines.push(`🎖️ **#${i + 1}** • ${userMention} (\`${entry.id}\`)  •  🎬 *${type}*  •  👁️ **${views}** views`);
+        rankLabel = `🎖️ Rank #${i + 1}`;
       }
+
+      // Separator before runner-ups section
+      if (i === 3) {
+        fields.push({
+          name: '─────────────────────────',
+          value: '**Runner-Ups**',
+          inline: false,
+        });
+      }
+
+      fields.push({
+        name: rankLabel,
+        value: `${userMention}  •  🎬 *${type}*  •  👁️ **${views}** views`,
+        inline: false,
+      });
     });
 
     const embed = new EmbedBuilder()
       .setTitle('🏆 Clip Submission Leaderboard')
-      .setDescription(lines.join('\n'))
-      .setColor('#FFD700')
-      .setTimestamp();
+      .setDescription('Please be aware, only accounts with active clips in this server will be displayed below.')
+      .addFields(fields)
+      .setColor(0x23272A)
+      .setFooter({ text: 'Clipping.bot 2026' });
 
     await interaction.editReply({ embeds: [embed] });
     logger.info(`Leaderboard command served directly from DB to ${interaction.user.tag} (${entries.length} entries)`);
