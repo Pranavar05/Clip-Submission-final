@@ -3,7 +3,7 @@ import { query } from '../../shared/db.js';
 import { logger } from '../../shared/logger.js';
 
 export async function executeLeaderboard(interaction: ChatInputCommandInteraction): Promise<void> {
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ ephemeral: false });
   const limit = interaction.options.getInteger('limit') ?? 10;
 
   try {

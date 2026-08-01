@@ -15,6 +15,7 @@ import { query } from '../../shared/db.js';
 import { executeSetupPortal } from '../commands/setup.js';
 import { executeLeaderboard } from '../commands/leaderboard.js';
 import { executeStats } from '../commands/stats.js';
+import { executeMyStats } from '../commands/mystats.js';
 
 const TOKEN_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -28,6 +29,8 @@ export async function handleInteractionCreate(interaction: Interaction): Promise
         await executeLeaderboard(interaction);
       } else if (interaction.commandName === 'stats') {
         await executeStats(interaction);
+      } else if (interaction.commandName === 'my-stats') {
+        await executeMyStats(interaction);
       }
       return;
     }

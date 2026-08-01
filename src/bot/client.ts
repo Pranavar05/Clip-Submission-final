@@ -52,6 +52,10 @@ client.once('ready', async () => {
             required: true,
           }
         ]
+      },
+      {
+        name: 'my-stats',
+        description: 'View your personal ranking and clip stats within the community.',
       }
     ];
 
