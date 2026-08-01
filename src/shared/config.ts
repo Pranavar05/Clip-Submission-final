@@ -25,6 +25,8 @@ export const config = {
 
   mockAirtable: process.env.MOCK_AIRTABLE === 'true' || (isDev && (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID)),
   mockStorage: process.env.MOCK_STORAGE === 'true' || (isDev && (!process.env.R2_ACCESS_KEY_ID || !process.env.R2_SECRET_ACCESS_KEY)),
+  youtubeApiKey: (process.env.YOUTUBE_API_KEY || '').trim(),
+  viewCheckIntervalMs: parseInt(process.env.VIEW_CHECK_INTERVAL_SECONDS || '300', 10) * 1000, // default 5 minutes
 
   discord: {
     token: (process.env.DISCORD_TOKEN || '').trim(),
@@ -44,6 +46,7 @@ export const config = {
     baseId: (process.env.AIRTABLE_BASE_ID || '').trim(),
     submissionsTable: (process.env.AIRTABLE_SUBMISSIONS_TABLE || 'Submissions').trim(),
     creatorsTable: (process.env.AIRTABLE_CREATORS_TABLE || 'Creators').trim(),
+    teamMembersTable: (process.env.AIRTABLE_TEAM_MEMBERS_TABLE || 'Team Members').trim(),
   },
 
   r2: {

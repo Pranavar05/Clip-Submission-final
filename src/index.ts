@@ -7,6 +7,7 @@ import { queue } from './api/services/queue.js';
 import { initDb, closeDb } from './shared/db.js';
 import { getRedisClient, closeRedis } from './shared/redis.js';
 import { processAirtableSync, processDiscordNotify, NonRetryableError } from './shared/jobs.js';
+import { startViewCheckerInterval } from './api/services/viewChecker.js';
 
 async function bootstrap() {
   try {
@@ -80,6 +81,9 @@ async function bootstrap() {
     } else {
       logger.info('No Redis configured — jobs will execute in-process via mock queue.');
     }
+
+    // 6.5. Start View Checker & Payout Scheduler
+    startViewCheckerInterval();
 
     // 7. Graceful shutdown
     const gracefulShutdown = async (signal: string) => {
