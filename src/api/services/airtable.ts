@@ -41,6 +41,8 @@ export class AirtableService {
   private static limiter = new AirtableLimiter();
   private static creatorsCache: CreatorsCache | null = null;
   private static CACHE_TTL_MS = 10 * 1000; // 10 seconds cache TTL for responsive webpage updates
+  private static lastSyncTime = 0;
+  private static SYNC_COOLDOWN_MS = 30 * 1000; // 30 seconds
 
   private static getBase(): Airtable.Base {
     if (!this.baseInstance) {
@@ -420,6 +422,73 @@ export class AirtableService {
     } catch (error: any) {
       logger.error(`Failed to fetch leaderboard from Airtable: ${error.message}`);
       return dbFallback();
+    }
+  }
+
+  /**
+   * Periodically syncs views from Airtable to the local database view_counts table.
+   */
+  static async syncViewsToDb(): Promise<void> {
+    if (config.mockAirtable) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - this.lastSyncTime < this.SYNC_COOLDOWN_MS) {
+      logger.info('Skipping views sync from Airtable (cooldown active)');
+      return;
+    }
+    this.lastSyncTime = now;
+
+    try {
+      const base = this.getBase();
+      const recordsToSync: { id: string; views: number }[] = [];
+
+      const fetchOp = () => new Promise<void>((resolve, reject) => {
+        base(config.airtable.submissionsTable)
+          .select({
+            fields: ['Submission ID', 'Views']
+          })
+          .eachPage(
+            (pageRecords, fetchNextPage) => {
+              pageRecords.forEach(rec => {
+                const subId = rec.get('Submission ID') as string;
+                const views = rec.get('Views') as number || 0;
+                if (subId) {
+                  recordsToSync.push({ id: subId, views });
+                }
+              });
+              fetchNextPage();
+            },
+            (err) => {
+              if (err) reject(err);
+              else resolve();
+            }
+          );
+      });
+
+      await this.executeWithRetry(fetchOp);
+
+      logger.info(`Fetched ${recordsToSync.length} submission views from Airtable.`);
+
+      // Get local submissions to prevent foreign key errors
+      const localSubmissions = await query<{ id: string }>('SELECT id FROM submissions');
+      const localIds = new Set(localSubmissions.map(s => s.id));
+
+      const filteredRecords = recordsToSync.filter(r => localIds.has(r.id));
+      logger.info(`Syncing ${filteredRecords.length} views to local DB...`);
+
+      for (const record of filteredRecords) {
+        await query(
+          `INSERT INTO view_counts (submission_id, count, last_viewed_at)
+           VALUES ($1, $2, CURRENT_TIMESTAMP)
+           ON CONFLICT(submission_id) DO UPDATE SET count = EXCLUDED.count, last_viewed_at = CURRENT_TIMESTAMP`,
+          [record.id, record.views]
+        );
+      }
+      logger.info('Successfully synced Airtable views to database.');
+    } catch (error: any) {
+      logger.error('Failed to sync Airtable views to database:', error);
     }
   }
 

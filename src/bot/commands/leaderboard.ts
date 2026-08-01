@@ -1,12 +1,18 @@
 import { ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { query } from '../../shared/db.js';
 import { logger } from '../../shared/logger.js';
+import { AirtableService } from '../../api/services/airtable.js';
 
 export async function executeLeaderboard(interaction: ChatInputCommandInteraction): Promise<void> {
   await interaction.deferReply({ ephemeral: false });
   const limit = interaction.options.getInteger('limit') ?? 10;
 
   try {
+    // Sync views from Airtable to DB (with 30s cooldown throttling)
+    await AirtableService.syncViewsToDb().catch(err => {
+      logger.error('Failed to sync views before leaderboard query:', err.message);
+    });
+
     const entries = await query<any>(
       `SELECT c.id, c.discord_username, c.user_id, c.clip_type, c.description, c.submitted_at,
               COALESCE(v.count, 0) as view_count

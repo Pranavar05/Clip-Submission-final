@@ -1,12 +1,18 @@
 import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
 import { query } from '../../shared/db.js';
 import { logger } from '../../shared/logger.js';
+import { AirtableService } from '../../api/services/airtable.js';
 
 export async function executeMyStats(interaction: ChatInputCommandInteraction): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const userId = interaction.user.id;
 
   try {
+    // Sync views from Airtable to DB (with 30s cooldown throttling)
+    await AirtableService.syncViewsToDb().catch(err => {
+      logger.error('Failed to sync views before my-stats query:', err.message);
+    });
+
     const rows = await query<any>(
       `WITH user_views AS (
          SELECT 
