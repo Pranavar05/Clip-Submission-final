@@ -19,6 +19,10 @@ import { executeStats } from '../commands/stats.js';
 import { executeMyStats } from '../commands/mystats.js';
 import { executeTrackViews } from '../commands/trackViews.js';
 import { executeTikTokConnect } from '../commands/tiktok.js';
+import { executeMyPayout } from '../commands/mypayout.js';
+import { executeGuidelines } from '../commands/guidelines.js';
+import { executeCampaigns } from '../commands/campaigns.js';
+import { executeClipperProfile } from '../commands/clipperProfile.js';
 
 const TOKEN_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -72,8 +76,8 @@ export async function handleInteractionCreate(interaction: Interaction): Promise
       const isClipper = isAdmin || (config.discord.clipperRoleId ? roles.includes(config.discord.clipperRoleId) : false);
       const isManager = isAdmin || (config.discord.managerRoleId ? roles.includes(config.discord.managerRoleId) : false);
 
-      // /my-stats is accessible by Clipper or Manager
-      if (interaction.commandName === 'my-stats') {
+      const isClipperCommand = ['my-stats', 'my-payout', 'guidelines', 'campaigns'].includes(interaction.commandName);
+      if (isClipperCommand) {
         if (!isClipper && !isManager) {
           await interaction.reply({
             content: '❌ Only members with the **Clipper** or **Manager** role can use this command.',
@@ -81,7 +85,16 @@ export async function handleInteractionCreate(interaction: Interaction): Promise
           });
           return;
         }
-        await executeMyStats(interaction);
+
+        if (interaction.commandName === 'my-stats') {
+          await executeMyStats(interaction);
+        } else if (interaction.commandName === 'my-payout') {
+          await executeMyPayout(interaction);
+        } else if (interaction.commandName === 'guidelines') {
+          await executeGuidelines(interaction);
+        } else if (interaction.commandName === 'campaigns') {
+          await executeCampaigns(interaction);
+        }
         return;
       }
 
@@ -104,6 +117,8 @@ export async function handleInteractionCreate(interaction: Interaction): Promise
         await executeTrackViews(interaction);
       } else if (interaction.commandName === 'tiktok-connect') {
         await executeTikTokConnect(interaction);
+      } else if (interaction.commandName === 'clipper-profile') {
+        await executeClipperProfile(interaction);
       }
       return;
     }

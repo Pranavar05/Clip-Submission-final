@@ -64,6 +64,30 @@ client.once('ready', async () => {
       {
         name: 'tiktok-connect',
         description: 'Link your TikTok account for automatic view tracking.',
+      },
+      {
+        name: 'my-payout',
+        description: 'View your pending and estimated payouts from Airtable.',
+      },
+      {
+        name: 'guidelines',
+        description: 'View the clip submission guidelines, requirements, and best practices.',
+      },
+      {
+        name: 'campaigns',
+        description: 'View active clipping campaigns and their payout rates.',
+      },
+      {
+        name: 'clipper-profile',
+        description: 'View stats and payout history for any clipper (Managers only).',
+        options: [
+          {
+            name: 'user',
+            description: 'The Discord user to lookup.',
+            type: 6, // User type
+            required: true,
+          }
+        ]
       }
     ];
 

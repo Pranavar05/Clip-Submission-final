@@ -450,6 +450,268 @@ export class AirtableService {
   }
 
   /**
+   * Fetches active campaigns/creators with their rates and status.
+   */
+  static async getActiveCampaignsWithRates(): Promise<{ id: string; name: string; rate: number; status: string }[]> {
+    if (config.mockAirtable) {
+      logger.info('[MOCK AIRTABLE] Fetching active campaigns with rates');
+      const rows = await query('SELECT id, name FROM creators WHERE active = true OR active = 1');
+      return rows.map(r => ({ id: r.id, name: r.name, rate: 150, status: 'Active' }));
+    }
+
+    try {
+      const base = this.getBase();
+      let activeCampaigns: { id: string; name: string; rate: number; status: string }[] = [];
+
+      logger.info(`Fetching active campaigns and rates from ${config.airtable.teamMembersTable} table...`);
+      const fetchOp = () => new Promise<{ id: string; name: string; rate: number; status: string }[]>((resolve, reject) => {
+        const records: { id: string; name: string; rate: number; status: string }[] = [];
+        base(config.airtable.teamMembersTable)
+          .select({
+            filterByFormula: `NOT({Status} = 'Inactive')`,
+            fields: ['Name', 'Rate Per Million ($)', 'Status']
+          })
+          .eachPage(
+            (pageRecords, fetchNextPage) => {
+              pageRecords.forEach(rec => {
+                const name = rec.get('Name') as string;
+                const rate = rec.get('Rate Per Million ($)') as number || 0;
+                const status = rec.get('Status') as string || 'Active';
+                if (name) records.push({ id: rec.id, name, rate, status });
+              });
+              fetchNextPage();
+            },
+            (err) => {
+              if (err) reject(err);
+              else resolve(records);
+            }
+          );
+      });
+
+      activeCampaigns = await this.executeWithRetry(fetchOp);
+      return activeCampaigns;
+    } catch (error: any) {
+      logger.error('Failed to fetch active campaigns with rates:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Looks up a team member by their Discord User ID.
+   */
+  static async getTeamMemberByDiscordId(discordUserId: string): Promise<{ id: string; name: string } | null> {
+    if (config.mockAirtable) {
+      return null;
+    }
+    try {
+      const base = this.getBase();
+      const findOp = () => new Promise<{ id: string; name: string } | null>((resolve, reject) => {
+        base(config.airtable.teamMembersTable)
+          .select({
+            filterByFormula: `{Discord User ID} = '${discordUserId}'`,
+            maxRecords: 1,
+            fields: ['Name']
+          })
+          .firstPage((err, records) => {
+            if (err) reject(err);
+            else resolve(records && records.length > 0 ? { id: records[0].id, name: records[0].get('Name') as string } : null);
+          });
+      });
+      return await this.executeWithRetry(findOp);
+    } catch (err: any) {
+      logger.error(`Error looking up Team Member by Discord User ID ${discordUserId}:`, err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Fetches a detailed payout and views summary for a user.
+   */
+  static async getUserPayoutSummary(discordUserId: string): Promise<{
+    totalClipperPayout: number;
+    totalAMPayout: number;
+    totalPayout: number;
+    totalViews: number;
+    clipCount: number;
+    clips: {
+      id: string;
+      creatorName: string;
+      platform: string;
+      clipType: string;
+      views: number;
+      clipperPayout: number;
+      amPayout: number;
+      totalPayout: number;
+      rateUsed: number;
+      submittedAt: string;
+    }[];
+  }> {
+    const emptySummary = {
+      totalClipperPayout: 0,
+      totalAMPayout: 0,
+      totalPayout: 0,
+      totalViews: 0,
+      clipCount: 0,
+      clips: []
+    };
+
+    if (config.mockAirtable) {
+      // Mock mode fallback: fetch from database using local views
+      const dbClips = await query<any>(
+        `SELECT c.id, c.clip_type, c.submitted_at, c.creator_id, cr.name as creator_name,
+                COALESCE(v.count, 0) as view_count
+         FROM submissions c
+         LEFT JOIN view_counts v ON c.id = v.submission_id
+         LEFT JOIN creators cr ON c.creator_id = cr.id
+         WHERE c.user_id = $1
+         ORDER BY c.submitted_at DESC`,
+        [discordUserId]
+      );
+
+      const clips = dbClips.map(c => {
+        const views = c.view_count || 0;
+        const rateUsed = 150; // Mock rate
+        const totalPayout = (views / 1_000_000) * rateUsed;
+        const clipperPayout = totalPayout * 0.3; // Stolen / standard split
+        return {
+          id: c.id,
+          creatorName: c.creator_name || 'Creator Alpha',
+          platform: 'YouTube',
+          clipType: c.clip_type || 'Stolen',
+          views,
+          clipperPayout: Math.round(clipperPayout * 100) / 100,
+          amPayout: 0,
+          totalPayout: Math.round(totalPayout * 100) / 100,
+          rateUsed,
+          submittedAt: c.submitted_at
+        };
+      });
+
+      const totalClipperPayout = clips.reduce((acc, c) => acc + c.clipperPayout, 0);
+      const totalViews = clips.reduce((acc, c) => acc + c.views, 0);
+
+      return {
+        totalClipperPayout: Math.round(totalClipperPayout * 100) / 100,
+        totalAMPayout: 0,
+        totalPayout: Math.round(totalClipperPayout * 100) / 100,
+        totalViews,
+        clipCount: clips.length,
+        clips
+      };
+    }
+
+    try {
+      // 1. Get user's Team Member ID if they have one mapped
+      const member = await this.getTeamMemberByDiscordId(discordUserId);
+      const memberId = member?.id;
+
+      // 2. Fetch all active creators for name resolution
+      const creators = await this.getActiveCreators().catch(() => []);
+      const creatorMap = new Map<string, string>();
+      creators.forEach(c => creatorMap.set(c.id, c.name));
+
+      // 3. Build formula to match submissions
+      let formula = `{Discord User ID} = '${discordUserId}'`;
+      if (memberId) {
+        formula = `OR({Discord User ID} = '${discordUserId}', FIND('${memberId}', {Clipper}), FIND('${memberId}', {Account Manager}))`;
+      }
+
+      const base = this.getBase();
+      const fetchOp = () => new Promise<any[]>((resolve, reject) => {
+        const records: any[] = [];
+        base(config.airtable.submissionsTable)
+          .select({
+            filterByFormula: formula,
+            fields: [
+              'Submission ID', 'Creator', 'Platform', 'Clip Type', 'Views',
+              'Clipper Payout ($)', 'AM Payout ($)', 'Total Payout ($)',
+              'Rate Used ($/mil)', 'Clipper', 'Account Manager', 'Created At'
+            ]
+          })
+          .eachPage(
+            (pageRecords, fetchNextPage) => {
+              records.push(...pageRecords);
+              fetchNextPage();
+            },
+            (err) => {
+              if (err) reject(err);
+              else resolve(records);
+            }
+          );
+      });
+
+      const submissions = await this.executeWithRetry(fetchOp);
+      if (!submissions.length) {
+        return emptySummary;
+      }
+
+      let totalClipperPayout = 0;
+      let totalAMPayout = 0;
+      let totalViews = 0;
+
+      const clips = submissions.map(rec => {
+        const f = rec.fields;
+        const subId = f['Submission ID'] as string || rec.id;
+        const platform = f['Platform'] as string || 'YouTube';
+        const clipType = f['Clip Type'] as string || 'Stolen';
+        const views = f['Views'] as number || 0;
+        const rateUsed = f['Rate Used ($/mil)'] as number || 0;
+
+        // Payout fields:
+        const clipperPayout = f['Clipper Payout ($)'] as number || 0;
+        const amPayout = f['AM Payout ($)'] as number || 0;
+        const totalPayout = f['Total Payout ($)'] as number || 0;
+        const submittedAt = f['Created At'] as string || new Date().toISOString();
+
+        // Resolve creator name
+        const creatorLinks = f['Creator'] as string[];
+        const creatorName = (creatorLinks && creatorLinks.length > 0)
+          ? (creatorMap.get(creatorLinks[0]) || 'Unknown')
+          : 'Unknown';
+
+        // Check relationship to attribute Clipper/AM payout correctly
+        const isClipperRelation = f['Discord User ID'] === discordUserId || 
+          (memberId && f['Clipper'] && (f['Clipper'] as string[]).includes(memberId));
+        
+        const isAMRelation = memberId && f['Account Manager'] && (f['Account Manager'] as string[]).includes(memberId);
+
+        if (isClipperRelation) {
+          totalClipperPayout += clipperPayout;
+        }
+        if (isAMRelation) {
+          totalAMPayout += amPayout;
+        }
+        totalViews += views;
+
+        return {
+          id: subId,
+          creatorName,
+          platform,
+          clipType,
+          views,
+          clipperPayout: Math.round(clipperPayout * 100) / 100,
+          amPayout: Math.round(amPayout * 100) / 100,
+          totalPayout: Math.round(totalPayout * 100) / 100,
+          rateUsed,
+          submittedAt
+        };
+      });
+
+      return {
+        totalClipperPayout: Math.round(totalClipperPayout * 100) / 100,
+        totalAMPayout: Math.round(totalAMPayout * 100) / 100,
+        totalPayout: Math.round((totalClipperPayout + totalAMPayout) * 100) / 100,
+        totalViews,
+        clipCount: clips.length,
+        clips: clips.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
+      };
+    } catch (error: any) {
+      logger.error(`Failed to generate user payout summary for ${discordUserId}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Runs a cheap query to verify database connectivity.
    */
   static async testConnection(): Promise<boolean> {
@@ -475,3 +737,4 @@ export class AirtableService {
     }
   }
 }
+
