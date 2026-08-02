@@ -8,6 +8,7 @@ import { client } from '../bot/client.js';
 import { AirtableService } from './services/airtable.js';
 import { R2StorageService } from './services/storage.js';
 import { queue } from './services/queue.js';
+import { TikTokService } from './services/tiktok.js';
 
 const router = Router();
 
@@ -138,6 +139,31 @@ router.get('/health', async (req: Request, res: Response) => {
     res.status(503).json(diagnostics);
   } else {
     res.status(200).json(diagnostics);
+  }
+});
+
+
+
+router.get('/tiktok/callback', async (req: Request, res: Response) => {
+  const { code, state, error, error_description } = req.query;
+
+  if (error) {
+    res.status(400).send(`TikTok authorization failed: ${error_description || error}`);
+    return;
+  }
+  if (!code || !state) {
+    res.status(400).send('Missing code or state in callback.');
+    return;
+  }
+
+  try {
+    await TikTokService.exchangeCodeForToken(code as string, state as string);
+    res.send(
+      '<h2>TikTok connected ✅</h2><p>You can close this tab and go back to Discord.</p>'
+    );
+  } catch (err: any) {
+    logger.error('OAuth callback error:', err.message);
+    res.status(500).send('Something went wrong linking your TikTok account. Please try /tiktok-connect again.');
   }
 });
 

@@ -60,6 +60,18 @@ client.once('ready', async () => {
       {
         name: 'track-views',
         description: 'Manually trigger YouTube/TikTok view checking and payout calculations.',
+      },
+      {
+        name: 'tiktok-connect',
+        description: 'Link your TikTok account for automatic view tracking.',
+      },
+      {
+        name: 'tiktok-disconnect',
+        description: 'Unlink your TikTok account from this bot.',
+      },
+      {
+        name: 'tiktok-profile',
+        description: 'Show your connected TikTok profile info.',
       }
     ];
 

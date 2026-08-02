@@ -55,6 +55,12 @@ export const config = {
     secretAccessKey: (process.env.R2_SECRET_ACCESS_KEY || '').trim(),
     bucketName: (process.env.R2_BUCKET_NAME || '').trim(),
     publicUrl: (process.env.R2_PUBLIC_URL || '').trim(),
+  },
+
+  tiktok: {
+    clientKey: (process.env.TIKTOK_CLIENT_KEY || '').trim(),
+    clientSecret: (process.env.TIKTOK_CLIENT_SECRET || '').trim(),
+    redirectUri: (process.env.TIKTOK_REDIRECT_URI || '').trim(),
   }
 };
 

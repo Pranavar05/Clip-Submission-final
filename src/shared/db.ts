@@ -181,6 +181,31 @@ const MIGRATIONS: Migration[] = [
       );
       CREATE INDEX IF NOT EXISTS idx_view_counts_count ON view_counts(count DESC);
     `
+  },
+  {
+    name: '004_tiktok_tokens',
+    pgSql: `
+      CREATE TABLE IF NOT EXISTS tiktok_tokens (
+        user_id VARCHAR(50) PRIMARY KEY,
+        access_token TEXT NOT NULL,
+        refresh_token TEXT NOT NULL,
+        open_id VARCHAR(255) NOT NULL,
+        expires_at BIGINT NOT NULL,
+        refresh_expires_at BIGINT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `,
+    sqliteSql: `
+      CREATE TABLE IF NOT EXISTS tiktok_tokens (
+        user_id TEXT PRIMARY KEY,
+        access_token TEXT NOT NULL,
+        refresh_token TEXT NOT NULL,
+        open_id TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        refresh_expires_at INTEGER NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+    `
   }
 ];
 

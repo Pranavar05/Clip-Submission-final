@@ -4,6 +4,7 @@ import { config } from '../../shared/config.js';
 import { query } from '../../shared/db.js';
 import { logger } from '../../shared/logger.js';
 import { calculatePayouts } from './payoutCalculator.js';
+import { TikTokService } from './tiktok.js';
 
 let isRunning = false;
 
@@ -18,6 +19,12 @@ function getBase(): Airtable.Base {
 // Extract 11-character YouTube video ID
 export function extractYouTubeVideoId(url: string): string | null {
   const match = url.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/);
+  return match ? match[1] : null;
+}
+
+// Extract TikTok video ID from URL (the numeric ID at the end of /video/<id>)
+export function extractTikTokVideoId(url: string): string | null {
+  const match = url.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/);
   return match ? match[1] : null;
 }
 
@@ -57,6 +64,16 @@ async function fetchYouTubeViews(videoId: string): Promise<number | null> {
     logger.error(`Failed to fetch YouTube stats for video ${videoId}:`, err.message);
   }
   return null;
+}
+
+// Get the first available TikTok-connected Discord user from the database
+async function getTikTokConnectedUserId(): Promise<string | null> {
+  try {
+    const rows = await query<{ user_id: string }>('SELECT user_id FROM tiktok_tokens LIMIT 1');
+    return rows.length > 0 ? rows[0].user_id : null;
+  } catch {
+    return null;
+  }
 }
 
 // Fetch all records from an Airtable table (handles pagination)
@@ -114,6 +131,9 @@ export async function checkAndUpdateViews(): Promise<boolean> {
     const localSubmissions = await query<{ id: string }>('SELECT id FROM submissions');
     const localIds = new Set(localSubmissions.map(s => s.id));
 
+    // Get a TikTok-connected user for API calls (if any)
+    const tiktokUserId = await getTikTokConnectedUserId();
+
     const airtableUpdates: { id: string; fields: any }[] = [];
     const dbUpdates: { id: string; views: number }[] = [];
 
@@ -147,12 +167,35 @@ export async function checkAndUpdateViews(): Promise<boolean> {
           }
         }
       } else if (platform === 'TikTok') {
-        // TikTok views are manual for now, so we do not overwrite them with API calls
-        // But we still sync whatever Views number exists in Airtable to our local DB view_counts
-        const subId = f['Submission ID'] as string;
-        const currentViews = f['Views'] as number;
-        if (subId && typeof currentViews === 'number' && localIds.has(subId)) {
-          dbUpdates.push({ id: subId, views: currentViews });
+        const tiktokVideoId = extractTikTokVideoId(postedUrl);
+
+        if (tiktokVideoId && tiktokUserId) {
+          // Fetch views from TikTok API using a connected user's token
+          try {
+            const viewCount = await TikTokService.fetchVideoViews(tiktokVideoId, tiktokUserId);
+            if (viewCount !== null) {
+              logger.info(`TikTok Video ${tiktokVideoId} has ${viewCount} views`);
+
+              airtableUpdates.push({
+                id: record.id,
+                fields: { 'Views': viewCount }
+              });
+
+              const subId = f['Submission ID'] as string;
+              if (subId && localIds.has(subId)) {
+                dbUpdates.push({ id: subId, views: viewCount });
+              }
+            }
+          } catch (err: any) {
+            logger.warn(`TikTok view fetch failed for ${tiktokVideoId}: ${err.message}`);
+          }
+        } else {
+          // No TikTok API connection — sync whatever Views number already exists in Airtable to our local DB
+          const subId = f['Submission ID'] as string;
+          const currentViews = f['Views'] as number;
+          if (subId && typeof currentViews === 'number' && localIds.has(subId)) {
+            dbUpdates.push({ id: subId, views: currentViews });
+          }
         }
       }
     }
