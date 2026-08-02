@@ -509,8 +509,7 @@ export class AirtableService {
         base(config.airtable.teamMembersTable)
           .select({
             filterByFormula: `{Discord User ID} = '${discordUserId}'`,
-            maxRecords: 1,
-            fields: ['Name']
+            maxRecords: 1
           })
           .firstPage((err, records) => {
             if (err) reject(err);
@@ -519,7 +518,7 @@ export class AirtableService {
       });
       return await this.executeWithRetry(findOp);
     } catch (err: any) {
-      logger.error(`Error looking up Team Member by Discord User ID ${discordUserId}:`, err.message);
+      logger.error(`Error looking up Team Member by Discord User ID ${discordUserId}:`, err);
       return null;
     }
   }
@@ -603,44 +602,66 @@ export class AirtableService {
     try {
       // 1. Get user's Team Member ID if they have one mapped
       const member = await this.getTeamMemberByDiscordId(discordUserId);
-      const memberId = member?.id;
+      let memberId = member?.id;
 
       // 2. Fetch all active creators for name resolution
       const creators = await this.getActiveCreators().catch(() => []);
       const creatorMap = new Map<string, string>();
       creators.forEach(c => creatorMap.set(c.id, c.name));
 
-      // 3. Build formula to match submissions
-      let formula = `{Discord User ID} = '${discordUserId}'`;
+      const base = this.getBase();
+      let submissions: any[] = [];
+
+      // 3. Try to query with full relationship checks (Clipper / Account Manager link fields)
       if (memberId) {
-        formula = `OR({Discord User ID} = '${discordUserId}', FIND('${memberId}', {Clipper}), FIND('${memberId}', {Account Manager}))`;
+        try {
+          const formula = `OR({Discord User ID} = '${discordUserId}', FIND('${memberId}', {Clipper}), FIND('${memberId}', {Account Manager}))`;
+          logger.info(`Attempting full relation payout query for ${discordUserId} (memberId: ${memberId})...`);
+          
+          const fetchOp = () => new Promise<any[]>((resolve, reject) => {
+            const records: any[] = [];
+            base(config.airtable.submissionsTable)
+              .select({ filterByFormula: formula })
+              .eachPage(
+                (pageRecords, fetchNextPage) => {
+                  records.push(...pageRecords);
+                  fetchNextPage();
+                },
+                (err) => {
+                  if (err) reject(err);
+                  else resolve(records);
+                }
+              );
+          });
+          submissions = await this.executeWithRetry(fetchOp);
+        } catch (relationErr: any) {
+          logger.warn(`Full relation payout query failed, falling back to simple Discord ID filter. Error:`, relationErr);
+          memberId = undefined; // clear memberId so we don't try checking arrays that failed
+        }
       }
 
-      const base = this.getBase();
-      const fetchOp = () => new Promise<any[]>((resolve, reject) => {
-        const records: any[] = [];
-        base(config.airtable.submissionsTable)
-          .select({
-            filterByFormula: formula,
-            fields: [
-              'Submission ID', 'Creator', 'Platform', 'Clip Type', 'Views',
-              'Clipper Payout ($)', 'AM Payout ($)', 'Total Payout ($)',
-              'Rate Used ($/mil)', 'Clipper', 'Account Manager', 'Created At'
-            ]
-          })
-          .eachPage(
-            (pageRecords, fetchNextPage) => {
-              records.push(...pageRecords);
-              fetchNextPage();
-            },
-            (err) => {
-              if (err) reject(err);
-              else resolve(records);
-            }
-          );
-      });
+      // If simple fallback is needed or memberId wasn't found
+      if (!memberId) {
+        logger.info(`Attempting simple Discord ID payout query for ${discordUserId}...`);
+        const formula = `{Discord User ID} = '${discordUserId}'`;
+        const fetchOp = () => new Promise<any[]>((resolve, reject) => {
+          const records: any[] = [];
+          base(config.airtable.submissionsTable)
+            .select({ filterByFormula: formula })
+            .eachPage(
+              (pageRecords, fetchNextPage) => {
+                records.push(...pageRecords);
+                fetchNextPage();
+              },
+              (err) => {
+                if (err) reject(err);
+                else resolve(records);
+              }
+            );
+        });
+        submissions = await this.executeWithRetry(fetchOp);
+      }
 
-      const submissions = await this.executeWithRetry(fetchOp);
       if (!submissions.length) {
         return emptySummary;
       }
@@ -670,10 +691,13 @@ export class AirtableService {
           : 'Unknown';
 
         // Check relationship to attribute Clipper/AM payout correctly
+        const clipperLinks = f['Clipper'] as string[] | undefined;
+        const amLinks = f['Account Manager'] as string[] | undefined;
+
         const isClipperRelation = f['Discord User ID'] === discordUserId || 
-          (memberId && f['Clipper'] && (f['Clipper'] as string[]).includes(memberId));
+          (memberId && Array.isArray(clipperLinks) && clipperLinks.includes(memberId));
         
-        const isAMRelation = memberId && f['Account Manager'] && (f['Account Manager'] as string[]).includes(memberId);
+        const isAMRelation = memberId && Array.isArray(amLinks) && amLinks.includes(memberId);
 
         if (isClipperRelation) {
           totalClipperPayout += clipperPayout;
@@ -706,7 +730,7 @@ export class AirtableService {
         clips: clips.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
       };
     } catch (error: any) {
-      logger.error(`Failed to generate user payout summary for ${discordUserId}:`, error.message);
+      logger.error(`Failed to generate user payout summary for ${discordUserId}:`, error);
       throw error;
     }
   }
