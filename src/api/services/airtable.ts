@@ -221,6 +221,7 @@ export class AirtableService {
       'Discord Username': payload.discordUser,
       'Discord Channel ID': payload.channelId,
       'Creator': [payload.creatorId],
+      'Editor': [payload.creatorId],
       'R2 File URL': videoFileUrl,
       'Original Filename': videoFileName,
       'File Size (MB)': Number((videoSizeBytes / (1024 * 1024)).toFixed(2)),
@@ -237,10 +238,14 @@ export class AirtableService {
       base(config.airtable.submissionsTable).create([{ fields }], (err: any, records: any) => {
         if (err) {
           logger.error(`Airtable API create error: ${err.message}`, { statusCode: err.statusCode, error: err.error, type: err.type });
-          if (err.message && err.message.includes('Unknown field name: "Description"')) {
-            logger.warn('Airtable Submissions table is missing the "Description" field. Retrying without Description field...');
-            const { Description, ...fieldsWithoutDesc } = fields;
-            base(config.airtable.submissionsTable).create([{ fields: fieldsWithoutDesc }], (err2: any, records2: any) => {
+          // Handle unknown field errors by stripping the offending field and retrying once
+          const unknownFieldMatch = err.message?.match(/Unknown field name:\s*"([^"]+)"/);
+          if (unknownFieldMatch) {
+            const badField = unknownFieldMatch[1];
+            logger.warn(`Airtable Submissions table is missing the "${badField}" field. Retrying without it...`);
+            const retryFields = { ...fields };
+            delete retryFields[badField];
+            base(config.airtable.submissionsTable).create([{ fields: retryFields }], (err2: any, records2: any) => {
               if (err2) {
                 reject(err2);
               } else if (!records2 || records2.length === 0) {

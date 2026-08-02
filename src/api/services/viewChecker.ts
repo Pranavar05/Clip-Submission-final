@@ -139,8 +139,10 @@ export async function checkAndUpdateViews(): Promise<boolean> {
 
     for (const record of submissions) {
       const f = record.fields;
-      const postedUrl = f['Posted URL'] as string || f['link'] as string; // Check both Posted URL and link fallback
-      if (!postedUrl) continue;
+      // IMPORTANT: Only use 'Posted URL' — never fall back to 'link' (which may be a
+      // lookup/formula field referencing a different record's URL, causing wrong-row updates).
+      const postedUrl = f['Posted URL'] as string;
+      if (!postedUrl || typeof postedUrl !== 'string') continue;
 
       const platform = detectPlatform(postedUrl);
       if (platform === 'YouTube') {

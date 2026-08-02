@@ -13,12 +13,15 @@ export async function executeLeaderboard(interaction: ChatInputCommandInteractio
       logger.error('Failed to sync views before leaderboard query:', err.message);
     });
 
+    // Aggregate by clipper: cumulative views + total clips submitted
     const entries = await query<any>(
-      `SELECT c.id, c.discord_username, c.user_id, c.clip_type, c.description, c.submitted_at,
-              COALESCE(v.count, 0) as view_count
+      `SELECT c.user_id, c.discord_username,
+              SUM(COALESCE(v.count, 0)) as total_views,
+              COUNT(c.id) as total_clips
        FROM submissions c
        LEFT JOIN view_counts v ON c.id = v.submission_id
-       ORDER BY view_count DESC, c.submitted_at ASC
+       GROUP BY c.user_id, c.discord_username
+       ORDER BY total_views DESC, total_clips DESC
        LIMIT $1`,
       [limit]
     );
@@ -30,13 +33,12 @@ export async function executeLeaderboard(interaction: ChatInputCommandInteractio
 
     const topThreeEmojis = ['🥇', '🥈', '🥉'];
 
-    // Build fields: one clean stat-block per entry — bold label, plain value underneath,
-    // matching the "Your Stats" style layout (no inline bullet-cramming).
+    // Build fields: one clean stat-block per clipper
     const fields: { name: string; value: string; inline: boolean }[] = [];
 
-    entries.forEach((entry, i) => {
-      const views = Number(entry.view_count).toLocaleString();
-      const type = entry.clip_type || 'Unknown';
+    entries.forEach((entry: any, i: number) => {
+      const views = Number(entry.total_views).toLocaleString();
+      const clips = Number(entry.total_clips);
       const userMention = `<@${entry.user_id}>`;
 
       const rankLabel =
@@ -53,7 +55,7 @@ export async function executeLeaderboard(interaction: ChatInputCommandInteractio
 
       fields.push({
         name: rankLabel,
-        value: `${userMention}\n${type}  •  ${views} views`,
+        value: `${userMention}\n📊 ${views} views  •  🎬 ${clips} clip${clips !== 1 ? 's' : ''} submitted`,
         inline: false,
       });
     });
@@ -76,4 +78,4 @@ export async function executeLeaderboard(interaction: ChatInputCommandInteractio
     logger.error('Failed to fetch leaderboard:', err.message);
     await interaction.editReply({ content: '❌ Failed to fetch the leaderboard. Please try again.' });
   }
-}
+}
