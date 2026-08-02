@@ -16,7 +16,7 @@ export const WORKER_CONCURRENCY = 1;
 export const config = {
   isDev,
   port: parseInt(process.env.PORT || '3000', 10),
-  apiBaseUrl: (process.env.API_BASE_URL || '').trim() || 'http://localhost:3000',
+  apiBaseUrl: ((process.env.API_BASE_URL || '').trim() || 'http://localhost:3000').replace(/\/+$/, ''),
   apiAuthToken: (process.env.API_AUTH_TOKEN || '').trim(), // No default fallback for security
   allowedOrigin: (process.env.ALLOWED_ORIGIN || '*').trim(),
   sentryDsn: (process.env.SENTRY_DSN || '').trim(),

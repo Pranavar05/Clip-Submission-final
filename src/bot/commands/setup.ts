@@ -13,8 +13,9 @@ import { logger } from '../../shared/logger.js';
 export async function executeSetupPortal(interaction: CommandInteraction): Promise<void> {
   try {
     // 1. Verify caller permissions (restrict to administrators & guild owner)
-    const isOwner = interaction.guild?.ownerId === interaction.user.id;
-    const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
+    const guild = interaction.guild || (interaction.guildId ? await interaction.client.guilds.fetch(interaction.guildId).catch(() => null) : null);
+    const isOwner = guild?.ownerId === interaction.user.id;
+    const isAdmin = isOwner || (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false);
     if (!isAdmin && !isOwner) {
       await interaction.reply({
         content: '❌ You must be the Server Owner or an Administrator to run this command.',

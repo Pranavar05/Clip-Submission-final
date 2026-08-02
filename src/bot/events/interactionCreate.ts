@@ -72,7 +72,9 @@ export async function handleInteractionCreate(interaction: Interaction): Promise
     // ── Slash Commands ──────────────────────────────────────────────────────
     if (interaction.isChatInputCommand()) {
       const roles = await getUserRoles(interaction, userId);
-      const isAdmin = (interaction.guild?.ownerId === userId) || (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false);
+      const guild = interaction.guild || (interaction.guildId ? await interaction.client.guilds.fetch(interaction.guildId).catch(() => null) : null);
+      const isOwner = guild?.ownerId === userId;
+      const isAdmin = isOwner || (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false);
       const isClipper = isAdmin || (config.discord.clipperRoleId ? roles.includes(config.discord.clipperRoleId) : false);
       const isManager = isAdmin || (config.discord.managerRoleId ? roles.includes(config.discord.managerRoleId) : false);
 
@@ -133,7 +135,9 @@ export async function handleInteractionCreate(interaction: Interaction): Promise
         // Validate Clipper or Manager Role
         if (config.discord.clipperRoleId || config.discord.managerRoleId) {
           const roles = await getUserRoles(interaction, userId);
-          const isAdmin = (interaction.guild?.ownerId === userId) || (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false);
+          const guild = interaction.guild || (interaction.guildId ? await interaction.client.guilds.fetch(interaction.guildId).catch(() => null) : null);
+          const isOwner = guild?.ownerId === userId;
+          const isAdmin = isOwner || (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false);
           const hasClipper = isAdmin || (config.discord.clipperRoleId ? roles.includes(config.discord.clipperRoleId) : false);
           const hasManager = isAdmin || (config.discord.managerRoleId ? roles.includes(config.discord.managerRoleId) : false);
 
