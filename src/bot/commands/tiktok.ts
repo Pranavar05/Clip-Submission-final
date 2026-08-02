@@ -2,7 +2,6 @@ import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags, ButtonBuilder,
 import { TikTokService } from '../../api/services/tiktok.js';
 import { config } from '../../shared/config.js';
 import { logger } from '../../shared/logger.js';
-import { query } from '../../shared/db.js';
 
 const TIKTOK_SCOPES = ['user.info.basic', 'video.list'];
 
@@ -50,47 +49,3 @@ export async function executeTikTokConnect(interaction: ChatInputCommandInteract
   }
 }
 
-export async function executeTikTokDisconnect(interaction: ChatInputCommandInteraction): Promise<void> {
-  try {
-    await TikTokService.unlinkAccount(interaction.user.id);
-    await interaction.reply({
-      content: '✅ Your TikTok account has been unlinked from this bot.',
-      flags: MessageFlags.Ephemeral
-    });
-  } catch (err: any) {
-    logger.error('Failed to disconnect TikTok:', err.message);
-    await interaction.reply({
-      content: '❌ Failed to unlink your TikTok account. Please try again.',
-      flags: MessageFlags.Ephemeral
-    });
-  }
-}
-
-export async function executeTikTokProfile(interaction: ChatInputCommandInteraction): Promise<void> {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-  try {
-    // Check if user has linked their account
-    const rows = await query<any>('SELECT user_id FROM tiktok_tokens WHERE user_id = $1', [interaction.user.id]);
-    if (rows.length === 0) {
-      await interaction.editReply("You haven't connected TikTok yet — run `/tiktok-connect` first.");
-      return;
-    }
-
-    const profile = await TikTokService.getUserProfile(interaction.user.id);
-
-    const embed = new EmbedBuilder()
-      .setTitle(profile.display_name || 'TikTok Profile')
-      .setThumbnail(profile.avatar_url || null)
-      .addFields(
-        { name: 'Followers', value: String(profile.follower_count ?? 'N/A'), inline: true }
-      )
-      .setColor('#FF0050')
-      .setTimestamp();
-
-    await interaction.editReply({ embeds: [embed] });
-  } catch (err: any) {
-    logger.error('Failed to fetch TikTok profile:', err.message);
-    await interaction.editReply(`❌ Failed to fetch your TikTok profile: ${err.message}`);
-  }
-}

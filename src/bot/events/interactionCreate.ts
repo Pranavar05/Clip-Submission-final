@@ -17,7 +17,7 @@ import { executeLeaderboard } from '../commands/leaderboard.js';
 import { executeStats } from '../commands/stats.js';
 import { executeMyStats } from '../commands/mystats.js';
 import { executeTrackViews } from '../commands/trackViews.js';
-import { executeTikTokConnect, executeTikTokDisconnect, executeTikTokProfile } from '../commands/tiktok.js';
+import { executeTikTokConnect } from '../commands/tiktok.js';
 
 const TOKEN_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -37,10 +37,6 @@ export async function handleInteractionCreate(interaction: Interaction): Promise
         await executeTrackViews(interaction);
       } else if (interaction.commandName === 'tiktok-connect') {
         await executeTikTokConnect(interaction);
-      } else if (interaction.commandName === 'tiktok-disconnect') {
-        await executeTikTokDisconnect(interaction);
-      } else if (interaction.commandName === 'tiktok-profile') {
-        await executeTikTokProfile(interaction);
       }
       return;
     }

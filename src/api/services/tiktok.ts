@@ -191,32 +191,6 @@ export class TikTokService {
   }
 
   /**
-   * Unlinks a user's TikTok account
-   */
-  static async unlinkAccount(discordUserId: string): Promise<void> {
-    await query('DELETE FROM tiktok_tokens WHERE user_id = $1', [discordUserId]);
-  }
-
-  /**
-   * Fetches basic profile info for the user
-   */
-  static async getUserProfile(discordUserId: string): Promise<{ display_name: string; avatar_url: string; follower_count?: number }> {
-    const accessToken = await this.getValidAccessToken(discordUserId);
-    const fields = ['open_id', 'display_name', 'avatar_url', 'follower_count'].join(',');
-
-    const { data } = await axios.get(`${API_BASE}/user/info/`, {
-      params: { fields },
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-
-    if (data.error && data.error.code !== 'ok') {
-      throw new Error(`TikTok API error: ${data.error.message}`);
-    }
-
-    return data.data.user;
-  }
-
-  /**
    * Fetches views count for a specific video using the user's access token
    */
   static async fetchVideoViews(videoId: string, discordUserId: string): Promise<number | null> {
