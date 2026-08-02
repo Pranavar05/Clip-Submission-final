@@ -83,7 +83,7 @@ async function bootstrap() {
     }
 
     // 6.5. Start View Checker & Payout Scheduler
-    startViewCheckerInterval();
+    // startViewCheckerInterval();
 
     // 7. Graceful shutdown
     const gracefulShutdown = async (signal: string) => {

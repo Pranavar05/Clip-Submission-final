@@ -16,6 +16,7 @@ import { executeSetupPortal } from '../commands/setup.js';
 import { executeLeaderboard } from '../commands/leaderboard.js';
 import { executeStats } from '../commands/stats.js';
 import { executeMyStats } from '../commands/mystats.js';
+import { executeTrackViews } from '../commands/trackViews.js';
 
 const TOKEN_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -31,6 +32,8 @@ export async function handleInteractionCreate(interaction: Interaction): Promise
         await executeStats(interaction);
       } else if (interaction.commandName === 'my-stats') {
         await executeMyStats(interaction);
+      } else if (interaction.commandName === 'track-views') {
+        await executeTrackViews(interaction);
       }
       return;
     }

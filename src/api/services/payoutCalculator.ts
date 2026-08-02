@@ -121,7 +121,10 @@ export async function calculatePayouts(): Promise<void> {
       }
 
       try {
-        const campaignLinks = f['Campaign'] as string[];
+        let campaignLinks = f['Campaign'] as string[];
+        if (!campaignLinks || campaignLinks.length === 0) {
+          campaignLinks = f['Creator'] as string[];
+        }
         if (!campaignLinks || campaignLinks.length === 0) {
           logger.warn(`Skipping submission ${record.id} / ${f['Submission ID']}: No Campaign/Creator linked.`);
           continue;

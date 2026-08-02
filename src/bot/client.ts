@@ -56,6 +56,10 @@ client.once('ready', async () => {
       {
         name: 'my-stats',
         description: 'View your personal ranking and clip stats within the community.',
+      },
+      {
+        name: 'track-views',
+        description: 'Manually trigger YouTube/TikTok view checking and payout calculations.',
       }
     ];
 

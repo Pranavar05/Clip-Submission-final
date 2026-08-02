@@ -99,10 +99,10 @@ async function updateAirtableRecordsBatched(table: string, updates: { id: string
 }
 
 // Main function to check and update views
-export async function checkAndUpdateViews(): Promise<void> {
+export async function checkAndUpdateViews(): Promise<boolean> {
   if (isRunning) {
     logger.info('View checker is already running. Skipping this pass.');
-    return;
+    return false;
   }
   isRunning = true;
   logger.info('Starting YouTube/TikTok view checking pass...');
@@ -180,9 +180,11 @@ export async function checkAndUpdateViews(): Promise<void> {
 
     // 3. Trigger payout calculation
     await calculatePayouts();
+    return true;
 
   } catch (err: any) {
     logger.error('Error during view checking pass:', err.message);
+    throw err;
   } finally {
     isRunning = false;
   }
