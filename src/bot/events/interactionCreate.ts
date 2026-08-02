@@ -21,18 +21,83 @@ import { executeTikTokConnect } from '../commands/tiktok.js';
 
 const TOKEN_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
+async function getUserRoles(interaction: Interaction, userId: string): Promise<string[]> {
+  if (!interaction.guildId) return [];
+
+  // Fast path: get roles from cached interaction member if available
+  if (interaction.member && 'roles' in interaction.member) {
+    const roles = interaction.member.roles;
+    if (typeof roles === 'object' && 'cache' in roles) {
+      return Array.from((roles.cache as any).keys()) as string[];
+    }
+  }
+
+  // Fallback: cached redis lookup or fetch from Discord API
+  let rolesList: string[] = [];
+  const { getRedisClient } = await import('../../shared/redis.js');
+  const redis = getRedisClient();
+  const cacheKey = `member_roles:${userId}`;
+
+  if (redis) {
+    try {
+      const cachedRoles = await redis.get(cacheKey);
+      if (cachedRoles) {
+        return JSON.parse(cachedRoles);
+      }
+    } catch (_) {}
+  }
+
+  try {
+    const guild = await interaction.client.guilds.fetch(interaction.guildId);
+    const member = await guild.members.fetch(userId);
+    rolesList = Array.from(member.roles.cache.keys());
+    if (redis) {
+      await redis.set(cacheKey, JSON.stringify(rolesList), 'EX', 300);
+    }
+  } catch (err: any) {
+    logger.error(`Failed to fetch member roles: ${err.message}`);
+  }
+  return rolesList;
+}
+
 export async function handleInteractionCreate(interaction: Interaction): Promise<void> {
   try {
+    const userId = interaction.user.id;
+
     // ── Slash Commands ──────────────────────────────────────────────────────
     if (interaction.isChatInputCommand()) {
+      const roles = await getUserRoles(interaction, userId);
+      const isClipper = config.discord.clipperRoleId ? roles.includes(config.discord.clipperRoleId) : false;
+      const isManager = config.discord.managerRoleId ? roles.includes(config.discord.managerRoleId) : false;
+
+      // /my-stats is accessible by Clipper or Manager
+      if (interaction.commandName === 'my-stats') {
+        if (!isClipper && !isManager) {
+          await interaction.reply({
+            content: '❌ Only members with the **Clipper** or **Manager** role can use this command.',
+            flags: MessageFlags.Ephemeral
+          });
+          return;
+        }
+        await executeMyStats(interaction);
+        return;
+      }
+
+      // All other commands require Manager role
+      if (!isManager) {
+        await interaction.reply({
+          content: '❌ You do not have the **Manager** role required to use this command.',
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
       if (interaction.commandName === 'setup-portal') {
         await executeSetupPortal(interaction);
       } else if (interaction.commandName === 'leaderboard') {
         await executeLeaderboard(interaction);
       } else if (interaction.commandName === 'stats') {
         await executeStats(interaction);
-      } else if (interaction.commandName === 'my-stats') {
-        await executeMyStats(interaction);
       } else if (interaction.commandName === 'track-views') {
         await executeTrackViews(interaction);
       } else if (interaction.commandName === 'tiktok-connect') {
@@ -44,46 +109,21 @@ export async function handleInteractionCreate(interaction: Interaction): Promise
     // ── Button Interactions ─────────────────────────────────────────────────
     if (interaction.isButton()) {
       const { customId } = interaction;
-      const userId = interaction.user.id;
 
       // ── PORTAL SUBMIT BUTTON ──────────────────────────────────────────────
       if (customId === 'submit_clip_start') {
 
-        // 1. Validate Clipper Role
-        if (config.discord.clipperRoleId) {
-          let hasRole = false;
-          let rolesList: string[] = [];
-          const { getRedisClient } = await import('../../shared/redis.js');
-          const redis = getRedisClient();
-          const cacheKey = `member_roles:${userId}`;
+        // Validate Clipper or Manager Role
+        if (config.discord.clipperRoleId || config.discord.managerRoleId) {
+          const roles = await getUserRoles(interaction, userId);
+          const hasClipper = config.discord.clipperRoleId ? roles.includes(config.discord.clipperRoleId) : false;
+          const hasManager = config.discord.managerRoleId ? roles.includes(config.discord.managerRoleId) : false;
 
-          if (redis) {
-            const cachedRoles = await redis.get(cacheKey);
-            if (cachedRoles) {
-              rolesList = JSON.parse(cachedRoles);
-              hasRole = rolesList.includes(config.discord.clipperRoleId);
-            }
-          }
+          logger.info(`Role check → user=${interaction.user.tag}, clipper=${config.discord.clipperRoleId}, manager=${config.discord.managerRoleId}, pass=${hasClipper || hasManager}`);
 
-          if (rolesList.length === 0) {
-            try {
-              const guild = await interaction.client.guilds.fetch(interaction.guildId!);
-              const member = await guild.members.fetch(userId);
-              rolesList = Array.from(member.roles.cache.keys());
-              hasRole = rolesList.includes(config.discord.clipperRoleId);
-              if (redis) {
-                await redis.set(cacheKey, JSON.stringify(rolesList), 'EX', 300);
-              }
-            } catch (err: any) {
-              logger.error(`Failed to fetch member roles for caching: ${err.message}`);
-            }
-          }
-
-          logger.info(`Role check → user=${interaction.user.tag}, required=${config.discord.clipperRoleId}, userRoles=${JSON.stringify(rolesList)}, pass=${hasRole}`);
-
-          if (!hasRole) {
+          if (!hasClipper && !hasManager) {
             await interaction.reply({
-              content: '❌ Only members with the **Clipper** role are authorized to submit clips.',
+              content: '❌ Only members with the **Clipper** or **Manager** role are authorized to submit clips.',
               flags: MessageFlags.Ephemeral
             });
             return;

@@ -33,6 +33,7 @@ export const config = {
     clientId: (process.env.DISCORD_CLIENT_ID || '').trim(),
     guildId: (process.env.DISCORD_GUILD_ID || '').trim(),
     clipperRoleId: (process.env.CLIPPER_ROLE_ID || '').trim(),
+    managerRoleId: (process.env.MANAGER_ROLE_ID || '').trim(),
   },
 
   limits: {
@@ -66,9 +67,12 @@ export const config = {
 
 // Complete configuration validation
 export function validateConfig(): void {
-  // 1. CLIPPER_ROLE_ID check (Fail loudly on startup)
+  // 1. CLIPPER_ROLE_ID & MANAGER_ROLE_ID checks (Fail loudly on startup)
   if (!config.discord.clipperRoleId) {
     throw new Error('CRITICAL CONFIGURATION ERROR: CLIPPER_ROLE_ID environment variable is missing or empty. The system cannot start without role gating enabled.');
+  }
+  if (!config.discord.managerRoleId) {
+    throw new Error('CRITICAL CONFIGURATION ERROR: MANAGER_ROLE_ID environment variable is missing or empty. The system cannot start without role gating enabled.');
   }
 
   // 2. API_AUTH_TOKEN check
