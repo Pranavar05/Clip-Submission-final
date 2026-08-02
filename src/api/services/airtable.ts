@@ -225,7 +225,7 @@ export class AirtableService {
       'R2 File URL': videoFileUrl,
       'Original Filename': videoFileName,
       'File Size (MB)': Number((videoSizeBytes / (1024 * 1024)).toFixed(2)),
-      'Description': payload.description || '',
+      'Note': payload.description || '',
       'Queue Status': 'Completed',
       'Created At': payload.submittedAt,
       'Updated At': new Date().toISOString()
