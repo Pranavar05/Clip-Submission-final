@@ -221,7 +221,6 @@ export class AirtableService {
       'Discord Username': payload.discordUser,
       'Discord Channel ID': payload.channelId,
       'Creator': [payload.creatorId],
-      'Campaign': [payload.creatorId],
       'R2 File URL': videoFileUrl,
       'Original Filename': videoFileName,
       'File Size (MB)': Number((videoSizeBytes / (1024 * 1024)).toFixed(2)),

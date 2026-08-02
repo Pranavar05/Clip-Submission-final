@@ -121,16 +121,13 @@ export async function calculatePayouts(): Promise<void> {
       }
 
       try {
-        let campaignLinks = f['Campaign'] as string[];
-        if (!campaignLinks || campaignLinks.length === 0) {
-          campaignLinks = f['Creator'] as string[];
-        }
-        if (!campaignLinks || campaignLinks.length === 0) {
-          logger.warn(`Skipping submission ${record.id} / ${f['Submission ID']}: No Campaign/Creator linked.`);
+        const creatorLinks = f['Creator'] as string[];
+        if (!creatorLinks || creatorLinks.length === 0) {
+          logger.warn(`Skipping submission ${record.id} / ${f['Submission ID']}: No Creator linked.`);
           continue;
         }
 
-        const ratePerMillion = rateMap.get(campaignLinks[0]) || 0;
+        const ratePerMillion = rateMap.get(creatorLinks[0]) || 0;
         const platform = f['Platform'] as string || 'YouTube';
         const clipType = f['Clip Type'] as string;
         const isAMOwnClip = f["Is AM's Own Clip"] === true;
