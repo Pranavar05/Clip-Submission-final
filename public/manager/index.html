@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manager Review Portal - Clipping.bot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #0d0e15;
+      --card-bg: rgba(22, 25, 41, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --primary-color: #6366f1;
+      --primary-glow: rgba(99, 102, 241, 0.15);
+      --success-color: #10b981;
+      --danger-color: #ef4444;
+      --warning-color: #f59e0b;
+      --text-color: #f3f4f6;
+      --text-muted: #9ca3af;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, var(--bg-color) 70%);
+      color: var(--text-color);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem;
+      overflow-x: hidden;
+    }
+
+    /* Container */
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      margin-top: 1rem;
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      max-width: 1200px;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .logo {
+      font-size: 1.8rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #a78bfa, var(--primary-color));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.5px;
+    }
+
+    .manager-badge {
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+      padding: 0.5rem 1rem;
+      border-radius: 9999px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .logout-btn {
+      background: transparent;
+      border: none;
+      color: var(--danger-color);
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.9rem;
+      margin-left: 1rem;
+      transition: opacity 0.2s;
+    }
+
+    .logout-btn:hover {
+      opacity: 0.8;
+    }
+
+    /* Login Form Card */
+    .login-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-grow: 1;
+      width: 100%;
+    }
+
+    .login-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 3rem;
+      width: 100%;
+      max-width: 450px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+      text-align: center;
+    }
+
+    .login-card h2 {
+      margin-bottom: 0.5rem;
+      font-weight: 800;
+      font-size: 2rem;
+    }
+
+    .login-card p {
+      color: var(--text-muted);
+      margin-bottom: 2rem;
+    }
+
+    .input-group {
+      margin-bottom: 1.5rem;
+      text-align: left;
+    }
+
+    .input-group label {
+      display: block;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 0.5rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .input-group input {
+      width: 100%;
+      padding: 1rem;
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--card-border);
+      color: var(--text-color);
+      font-family: inherit;
+      font-size: 1rem;
+      transition: all 0.2s;
+    }
+
+    .input-group input:focus {
+      outline: none;
+      border-color: var(--primary-color);
+      box-shadow: 0 0 10px var(--primary-glow);
+    }
+
+    .login-btn {
+      width: 100%;
+      padding: 1rem;
+      border-radius: 12px;
+      background: var(--primary-color);
+      border: none;
+      color: white;
+      font-weight: 700;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .login-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(99, 102, 241, 0.4);
+    }
+
+    .login-btn:active {
+      transform: translateY(0);
+    }
+
+    /* Grid Submissions Layout */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 2rem;
+      margin-bottom: 3rem;
+    }
+
+    /* Submission Card */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      backdrop-filter: blur(12px);
+      transition: transform 0.3s, border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(255, 255, 255, 0.15);
+      box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .card-video {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: #000;
+    }
+
+    .card-video video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .card-content {
+      padding: 1.5rem;
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 1rem;
+    }
+
+    .clip-id {
+      font-weight: 800;
+      color: var(--primary-color);
+      font-size: 1.1rem;
+    }
+
+    .clip-type-badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 0.25rem 0.6rem;
+      border-radius: 9999px;
+      text-transform: uppercase;
+    }
+
+    .meta-item {
+      margin-bottom: 0.5rem;
+      font-size: 0.95rem;
+    }
+
+    .meta-label {
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+    }
+
+    .meta-val {
+      font-weight: 600;
+    }
+
+    .note-block {
+      background: rgba(0, 0, 0, 0.15);
+      padding: 0.75rem 1rem;
+      border-radius: 12px;
+      font-size: 0.9rem;
+      line-height: 1.4;
+      margin-top: 0.5rem;
+      margin-bottom: 1rem;
+      border-left: 3px solid var(--primary-color);
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: auto;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 0.75rem;
+      border-radius: 10px;
+      border: none;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .btn-approve {
+      background: var(--success-color);
+      color: white;
+    }
+
+    .btn-approve:hover {
+      box-shadow: 0 5px 15px rgba(16, 185, 129, 0.3);
+    }
+
+    .btn-reject {
+      background: var(--danger-color);
+      color: white;
+    }
+
+    .btn-reject:hover {
+      box-shadow: 0 5px 15px rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-flag {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--warning-color);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .btn-flag.flagged {
+      background: var(--warning-color);
+      color: black;
+    }
+
+    .btn-flag:hover {
+      background: rgba(245, 158, 11, 0.3);
+    }
+
+    /* Locked Card styles */
+    .card.locked {
+      opacity: 0.65;
+      pointer-events: none;
+    }
+
+    .locked-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.4);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-weight: 700;
+      color: var(--warning-color);
+      backdrop-filter: blur(2px);
+      z-index: 2;
+    }
+
+    /* Rejection Modal */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      justify-content: center;
+      align-items: center;
+      z-index: 999;
+    }
+
+    .modal-content {
+      background: #161929;
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 2rem;
+      width: 90%;
+      max-width: 500px;
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+    }
+
+    .modal-title {
+      font-size: 1.4rem;
+      font-weight: 800;
+      margin-bottom: 1rem;
+    }
+
+    .modal-textarea {
+      width: 100%;
+      height: 120px;
+      padding: 1rem;
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--card-border);
+      color: var(--text-color);
+      font-family: inherit;
+      font-size: 0.95rem;
+      resize: none;
+      margin-bottom: 1.5rem;
+    }
+
+    .modal-textarea:focus {
+      outline: none;
+      border-color: var(--danger-color);
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 1rem;
+    }
+
+    .btn-cancel {
+      background: transparent;
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 0.75rem 1.5rem;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .btn-submit-reject {
+      background: var(--danger-color);
+      color: white;
+      padding: 0.75rem 1.5rem;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 700;
+      border: none;
+    }
+
+    /* Notification system */
+    .toast-container {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      z-index: 1000;
+    }
+
+    .toast {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-left: 4px solid var(--primary-color);
+      border-radius: 12px;
+      padding: 1rem 1.5rem;
+      margin-top: 0.5rem;
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+      color: var(--text-color);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      backdrop-filter: blur(12px);
+      animation: slideIn 0.3s ease forwards;
+    }
+
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .empty-state {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 5rem 2rem;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header (Hidden when logged out) -->
+  <header id="app-header" style="display: none;">
+    <div class="logo">Clipping.bot <span style="font-size: 0.9rem; font-weight: 400; color: var(--text-muted);">Manager Portal</span></div>
+    <div style="display: flex; align-items: center;">
+      <div class="manager-badge">
+        👤 <span id="manager-display-name">Alex</span>
+      </div>
+      <button class="logout-btn" id="btn-logout">Logout</button>
+    </div>
+  </header>
+
+  <!-- Login view -->
+  <div class="login-container" id="login-view">
+    <div class="login-card">
+      <h2>Manager Sign In</h2>
+      <p>Secure authentication for Clip review dashboard</p>
+      
+      <div class="input-group">
+        <label for="manager-id">Manager ID</label>
+        <input type="text" id="manager-id" placeholder="e.g., m001" autocomplete="username">
+      </div>
+
+      <div class="input-group">
+        <label for="manager-pass">Password</label>
+        <input type="password" id="manager-pass" placeholder="••••••••" autocomplete="current-password">
+      </div>
+
+      <button class="login-btn" id="btn-login">Access Dashboard</button>
+    </div>
+  </div>
+
+  <!-- Dashboard view -->
+  <div class="container" id="dashboard-view" style="display: none;">
+    <div style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <h1 style="font-size: 2rem; font-weight: 800; margin-bottom: 0.25rem;">Active Submissions Queue</h1>
+        <p style="color: var(--text-muted);">Review pending video clips and approve them for views tracking</p>
+      </div>
+      <button class="btn" style="max-width: 150px; background: rgba(255,255,255,0.05); border: 1px solid var(--card-border);" id="btn-refresh">
+        🔄 Refresh
+      </button>
+    </div>
+
+    <!-- Cards grid -->
+    <div class="grid" id="submissions-grid">
+      <!-- Cards populated dynamically via dashboard.js -->
+    </div>
+  </div>
+
+  <!-- Rejection Modal -->
+  <div class="modal" id="reject-modal">
+    <div class="modal-content">
+      <div class="modal-title" id="modal-action-title">Reason for Rejection</div>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
+        Add a note explaining why this clip is being rejected or sent for further verification.
+      </p>
+      <textarea class="modal-textarea" id="reject-note-input" placeholder="Type notes here..."></textarea>
+      <div class="modal-actions">
+        <button class="btn-cancel" id="btn-modal-cancel">Cancel</button>
+        <button class="btn-submit-reject" id="btn-modal-submit">Confirm Action</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/manager/dashboard.js"></script>
+</body>
+</html>

@@ -206,6 +206,19 @@ const MIGRATIONS: Migration[] = [
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
     `
+  },
+  {
+    name: '005_manager_review',
+    pgSql: `
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS manager_name VARCHAR(255);
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS flagged_by_manager_id VARCHAR(50);
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS rejection_note TEXT;
+    `,
+    sqliteSql: `
+      ALTER TABLE submissions ADD COLUMN manager_name TEXT;
+      ALTER TABLE submissions ADD COLUMN flagged_by_manager_id TEXT;
+      ALTER TABLE submissions ADD COLUMN rejection_note TEXT;
+    `
   }
 ];
 

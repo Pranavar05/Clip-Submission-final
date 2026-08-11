@@ -320,6 +320,67 @@ export class AirtableService {
   }
 
   /**
+   * Updates review status and manager fields in Airtable.
+   */
+  static async updateSubmissionReviewStatus(
+    submissionId: string,
+    status: 'Completed' | 'Rejected',
+    managerName: string,
+    note?: string
+  ): Promise<void> {
+    if (config.mockAirtable) {
+      logger.info(`[MOCK AIRTABLE] Simulating update review status for ID: ${submissionId} to ${status} by ${managerName}`);
+      return;
+    }
+
+    try {
+      const base = this.getBase();
+      
+      const findOp = () => new Promise<string | null>((resolve, reject) => {
+        base(config.airtable.submissionsTable)
+          .select({
+            filterByFormula: `{Submission ID} = '${submissionId}'`,
+            maxRecords: 1
+          })
+          .firstPage((err, records) => {
+            if (err) reject(err);
+            else resolve(records && records.length > 0 ? records[0].id : null);
+          });
+      });
+
+      const recordId = await this.executeWithRetry(findOp);
+      if (!recordId) {
+        logger.warn(`Could not update review status in Airtable: Submission ID ${submissionId} not found.`);
+        return;
+      }
+
+      const fields: Record<string, any> = {
+        'Queue Status': status,
+        'Manager': managerName
+      };
+
+      if (note) {
+        fields['Note'] = note;
+      }
+
+      const updateOp = () => new Promise<void>((resolve, reject) => {
+        base(config.airtable.submissionsTable).update(
+          [{ id: recordId, fields }],
+          (err) => {
+            if (err) reject(err);
+            else resolve();
+          }
+        );
+      });
+
+      await this.executeWithRetry(updateOp);
+      logger.info(`Successfully updated review status in Airtable for Submission ID: ${submissionId} to ${status}`);
+    } catch (error: any) {
+      logger.error(`Failed to update review status in Airtable for Submission ID ${submissionId}:`, error);
+    }
+  }
+
+  /**
    * Fetches leaderboard from Airtable View "Leaderboard"
    */
   static async getLeaderboard(limit: number = 10): Promise<any[]> {

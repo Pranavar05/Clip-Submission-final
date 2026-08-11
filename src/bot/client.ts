@@ -58,6 +58,10 @@ client.once('ready', async () => {
         description: 'View your personal ranking and clip stats within the community.',
       },
       {
+        name: 'my-submissions',
+        description: 'View your submitted clips and their approval statuses.',
+      },
+      {
         name: 'track-views',
         description: 'Manually trigger YouTube/TikTok view checking and payout calculations.',
       },

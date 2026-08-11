@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { handlePortalSession, handleWebSubmissionInit, handleWebSubmissionUpload, handleCreators } from './controllers.js';
 import { handleIncrementView, handleGetStats, handleGetLeaderboard } from './viewController.js';
+import { handleManagerLogin, handleGetManagerSubmissions, handleReviewSubmission, handleFlagSubmission } from './managerController.js';
 import { config } from '../shared/config.js';
 import { logger } from '../shared/logger.js';
 import { query } from '../shared/db.js';
@@ -166,6 +167,12 @@ router.get('/tiktok/callback', async (req: Request, res: Response) => {
     res.status(500).send('Something went wrong linking your TikTok account. Please try /tiktok-connect again.');
   }
 });
+
+// Manager Review Routes
+router.post('/manager/login', handleManagerLogin);
+router.get('/manager/submissions', handleGetManagerSubmissions);
+router.post('/manager/submissions/:id/review', handleReviewSubmission);
+router.post('/manager/submissions/:id/flag', handleFlagSubmission);
 
 export default router;
 
