@@ -366,7 +366,7 @@ export class AirtableService {
       const updateOp = () => new Promise<void>((resolve, reject) => {
         base(config.airtable.submissionsTable).update(
           [{ id: recordId, fields }],
-          (err) => {
+          (err: any) => {
             if (err) reject(err);
             else resolve();
           }
