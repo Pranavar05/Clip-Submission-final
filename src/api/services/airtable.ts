@@ -354,38 +354,17 @@ export class AirtableService {
         return;
       }
 
-      // Try to resolve the manager's name to a Team Member Record ID in case it is a Linked Record field
-      let managerRecordId: string | null = null;
-      try {
-        const findManagerOp = () => new Promise<string | null>((resolve, reject) => {
-          base(config.airtable.teamMembersTable)
-            .select({
-              filterByFormula: `{Name} = '${managerName.replace(/'/g, "\\'")}'`,
-              maxRecords: 1
-            })
-            .firstPage((err, records) => {
-              if (err) reject(err);
-              else resolve(records && records.length > 0 ? records[0].id : null);
-            });
-        });
-        managerRecordId = await this.executeWithRetry(findManagerOp).catch(() => null);
-      } catch (findErr: any) {
-        logger.error(`Error looking up manager record ID for "${managerName}":`, findErr.message);
+      // Manager column is a Single line text field — write the name directly as a string
+      const fields: Record<string, any> = {
+        'Queue Status': status,
+        'Manager': managerName
+      };
+
+      if (note) {
+        fields['Note'] = note;
       }
 
-      // Try updating in sequence of field type likelihood:
-      // Option A: Multiple Select format [managerName] (e.g. ['Mohit'])
-      // Option B: Raw string managerName (e.g. 'Mohit')
-      // Option C: Linked Record format [managerRecordId]
-      const attemptUpdate = (managerVal: any) => new Promise<void>((resolve, reject) => {
-        const fields: Record<string, any> = {
-          'Queue Status': status,
-          'Manager': managerVal
-        };
-        if (note) {
-          fields['Note'] = note;
-        }
-
+      const updateOp = () => new Promise<void>((resolve, reject) => {
         base(config.airtable.submissionsTable).update(
           [{ id: recordId, fields }],
           (err: any) => {
@@ -395,54 +374,8 @@ export class AirtableService {
         );
       });
 
-      // Try Option A (Multiple Select array of strings)
-      try {
-        logger.info(`Attempting Airtable update with Multiple Select format: ['${managerName}']`);
-        await this.executeWithRetry(() => attemptUpdate([managerName]));
-        logger.info(`Successfully updated review status and manager (Multiple Select format) in Airtable for ${submissionId}`);
-        return;
-      } catch (errA: any) {
-        logger.warn(`Airtable update failed with Multiple Select format. Error: ${errA.message}. Trying plain string fallback...`);
-      }
-
-      // Try Option B (Plain string)
-      try {
-        logger.info(`Attempting Airtable update with raw string format: '${managerName}'`);
-        await this.executeWithRetry(() => attemptUpdate(managerName));
-        logger.info(`Successfully updated review status and manager (Plain string format) in Airtable for ${submissionId}`);
-        return;
-      } catch (errB: any) {
-        logger.warn(`Airtable update failed with plain string format. Error: ${errB.message}. Trying linked record fallback...`);
-      }
-
-      // Try Option C (Linked Record) if we have the record ID
-      if (managerRecordId) {
-        try {
-          logger.info(`Attempting Airtable update with Linked Record format: ['${managerRecordId}']`);
-          await this.executeWithRetry(() => attemptUpdate([managerRecordId]));
-          logger.info(`Successfully updated review status and manager (Linked Record format) in Airtable for ${submissionId}`);
-          return;
-        } catch (errC: any) {
-          logger.error(`Airtable update failed with Linked Record format. Error: ${errC.message}`);
-        }
-      }
-
-      // Try update without the Manager field at all so Queue Status still gets updated
-      logger.warn(`All manager field formats failed. Updating Queue Status and Note only.`);
-      const updateFallbackOnly = () => new Promise<void>((resolve, reject) => {
-        const fields: Record<string, any> = {
-          'Queue Status': status
-        };
-        if (note) fields['Note'] = note;
-
-        base(config.airtable.submissionsTable).update([{ id: recordId, fields }], (err: any) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-      await this.executeWithRetry(updateFallbackOnly);
-      logger.info(`Successfully updated review status (without Manager field) in Airtable for ${submissionId}`);
-
+      await this.executeWithRetry(updateOp);
+      logger.info(`Successfully updated review status in Airtable for Submission ID: ${submissionId} to ${status} by ${managerName}`);
     } catch (error: any) {
       logger.error(`Failed to update review status in Airtable for Submission ID ${submissionId}:`, error);
     }
