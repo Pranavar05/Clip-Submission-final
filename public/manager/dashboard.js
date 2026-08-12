@@ -144,7 +144,10 @@
       card.innerHTML = `
         <div class="card-video">
           ${lockOverlayHtml}
-          <video src="${sub.fileUrl}" controls preload="metadata"></video>
+          <div style="font-size: 2.2rem; filter: drop-shadow(0 0 10px rgba(99, 102, 241, 0.4)); margin-bottom: 0.25rem;">🎬</div>
+          <a href="${sub.fileUrl}" target="_blank" class="btn" style="max-width: 200px; padding: 0.5rem 1rem; font-size: 0.85rem; background: var(--primary-color); color: white; border-radius: 8px; text-decoration: none; border: none; font-weight: 700; box-shadow: 0 4px 12px var(--primary-glow); display: flex; align-items: center; gap: 0.5rem; transition: transform 0.2s;">
+            Open Video File 🔗
+          </a>
         </div>
         <div class="card-content">
           <div class="card-header">

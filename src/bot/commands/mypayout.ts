@@ -41,17 +41,12 @@ export async function executeMyPayout(interaction: ChatInputCommandInteraction):
       .addFields(
         { name: '🎬 Total Clips', value: `${summary.clipCount}`, inline: true },
         { name: '👀 Total Views', value: `${totalViewsFormatted}`, inline: true },
-        { name: '💵 Clipper Earnings', value: `$${clipperPayoutFormatted}`, inline: true }
+        { name: '💵 Clipper Earnings', value: `$${clipperPayoutFormatted}`, inline: true },
+        { name: '💼 AM Earnings', value: `$${amPayoutFormatted}`, inline: true },
+        { name: '💎 Total Combined Payout', value: `$${totalPayoutFormatted}`, inline: true }
       )
       .setColor(0x2f3136)
       .setTimestamp();
-
-    if (summary.totalAMPayout > 0) {
-      embed.addFields(
-        { name: '💼 Account Manager (AM) Earnings', value: `$${amPayoutFormatted}`, inline: true },
-        { name: '💎 Total Combined Payout', value: `$${totalPayoutFormatted}`, inline: true }
-      );
-    }
 
     // List recent submissions (up to 5)
     if (summary.clips.length > 0) {

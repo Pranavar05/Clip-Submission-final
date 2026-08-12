@@ -354,9 +354,34 @@ export class AirtableService {
         return;
       }
 
+      // Try to resolve the manager's name to a Team Member Record ID
+      let managerValue: any = managerName;
+      try {
+        const findManagerOp = () => new Promise<string | null>((resolve, reject) => {
+          base(config.airtable.teamMembersTable)
+            .select({
+              filterByFormula: `{Name} = '${managerName.replace(/'/g, "\\'")}'`,
+              maxRecords: 1
+            })
+            .firstPage((err, records) => {
+              if (err) reject(err);
+              else resolve(records && records.length > 0 ? records[0].id : null);
+            });
+        });
+        const managerRecordId = await this.executeWithRetry(findManagerOp).catch(() => null);
+        if (managerRecordId) {
+          logger.info(`Resolved manager name "${managerName}" to Team Member Record ID: ${managerRecordId}`);
+          managerValue = [managerRecordId];
+        } else {
+          logger.warn(`Could not resolve manager name "${managerName}" to a Team Member record. Writing raw string instead.`);
+        }
+      } catch (findErr: any) {
+        logger.error(`Error looking up manager record ID for "${managerName}":`, findErr.message);
+      }
+
       const fields: Record<string, any> = {
         'Queue Status': status,
-        'Manager': managerName
+        'Manager': managerValue
       };
 
       if (note) {
@@ -373,8 +398,29 @@ export class AirtableService {
         );
       });
 
-      await this.executeWithRetry(updateOp);
-      logger.info(`Successfully updated review status in Airtable for Submission ID: ${submissionId} to ${status}`);
+      try {
+        await this.executeWithRetry(updateOp);
+        logger.info(`Successfully updated review status in Airtable for Submission ID: ${submissionId} to ${status}`);
+      } catch (updateErr: any) {
+        // If we attempted linked record but it failed, try falling back to plain text
+        if (Array.isArray(managerValue)) {
+          logger.warn(`Airtable update failed with linked record ID for Manager field. Retrying with raw string manager name "${managerName}". Error: ${updateErr.message}`);
+          fields['Manager'] = managerName;
+          const retryUpdateOp = () => new Promise<void>((resolve, reject) => {
+            base(config.airtable.submissionsTable).update(
+              [{ id: recordId, fields }],
+              (err: any) => {
+                if (err) reject(err);
+                else resolve();
+              }
+            );
+          });
+          await this.executeWithRetry(retryUpdateOp);
+          logger.info(`Successfully updated review status in Airtable (fallback plain text) for Submission ID: ${submissionId}`);
+        } else {
+          throw updateErr;
+        }
+      }
     } catch (error: any) {
       logger.error(`Failed to update review status in Airtable for Submission ID ${submissionId}:`, error);
     }

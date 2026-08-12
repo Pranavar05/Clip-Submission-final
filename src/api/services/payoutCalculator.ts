@@ -112,7 +112,13 @@ export async function calculatePayouts(): Promise<void> {
 
     for (const record of submissions) {
       const f = record.fields;
-      const views = f['Views'] as number || 0;
+      const views = f['Views'] as number;
+
+      // Skip if views are missing, undefined, null, 0, or NaN
+      if (views === undefined || views === null || views === 0 || isNaN(views)) {
+        continue;
+      }
+
       const lastCalculatedViews = f['Last Calculated Views'] as number;
 
       // Skip if views haven't changed since last calculation
