@@ -23,6 +23,6 @@ export async function executeTrackViews(interaction: ChatInputCommandInteraction
     await interaction.editReply({ embeds: [embed] });
   } catch (err: any) {
     logger.error('Failed to manually track views via Discord command:', err.message);
-    await interaction.editReply({ content: '❌ Failed to run view checking & payouts calculation. Please check server logs.' });
+    await interaction.editReply({ content: `❌ Failed to run view checking & payouts calculation: ${err.message}` });
   }
 }

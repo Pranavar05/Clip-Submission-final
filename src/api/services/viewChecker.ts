@@ -18,8 +18,12 @@ function getBase(): Airtable.Base {
 
 // Extract 11-character YouTube video ID
 export function extractYouTubeVideoId(url: string): string | null {
-  const match = url.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/);
-  return match ? match[1] : null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|shorts\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  if (match && match[2] && match[2].length === 11) {
+    return match[2];
+  }
+  return null;
 }
 
 // Extract TikTok video ID from URL (the numeric ID at the end of /video/<id>)
