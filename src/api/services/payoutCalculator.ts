@@ -16,9 +16,9 @@ function getBase(): Airtable.Base {
 function getSplit(clipType: string, platform: string, isAMOwnClip: boolean, hasEditor: boolean) {
   if (isAMOwnClip) {
     if (clipType === 'Stolen') return { clipper: 0, editor: 0, am: 0.7, owner: 0.3 };
-    if (clipType === 'Original-Edited') return { clipper: 0, editor: 0, am: 0.8, owner: 0.2 };
+    if (clipType === 'Original-Edited' || clipType === 'Edited') return { clipper: 0, editor: 0, am: 0.8, owner: 0.2 };
     throw new Error(
-      `"Is AM's Own Clip" is checked but Clip Type is "${clipType}" — only Stolen or Original-Edited apply.`
+      `"Is AM's Own Clip" is checked but Clip Type is "${clipType}" — only Stolen or Original-Edited/Edited apply.`
     );
   }
 
@@ -35,7 +35,7 @@ function getSplit(clipType: string, platform: string, isAMOwnClip: boolean, hasE
     return { clipper: 0.2, editor: 0.35, am: 0.25, owner: 0.2 };
   }
 
-  if (clipType === 'Original-Edited') {
+  if (clipType === 'Original-Edited' || clipType === 'Edited') {
     if (platform === 'YouTube') return { clipper: 0.6, editor: 0, am: 0.2, owner: 0.2 };
     return { clipper: 0.55, editor: 0, am: 0.25, owner: 0.2 };
   }

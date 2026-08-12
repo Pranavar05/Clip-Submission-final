@@ -14,28 +14,18 @@ export async function executeTrackViews(interaction: ChatInputCommandInteraction
       return;
     }
 
+    // Keep server-side logs detailed for debugging
+    logger.info(`View checking & payout run completed. Submissions: ${result.totalRecords}, Calculated: ${result.calculated}, Written: ${result.written}, Skipped Views: ${result.skippedNoViews}, Skipped Unchanged: ${result.skippedViewsUnchanged}, Errors: ${result.errors}`);
+    if (result.errors > 0) {
+      logger.error('Errors encountered during view tracking pass:', result.errorMessages.join('\n'));
+    }
+
+    // Send a clean, simple success message in Discord chat
     const embed = new EmbedBuilder()
       .setTitle('🔄 Views & Payouts Checked!')
-      .setDescription('Successfully fetched latest view counts and processed payout calculations.')
-      .addFields(
-        { name: '📊 Total Submissions', value: `${result.totalRecords}`, inline: true },
-        { name: '✅ Payouts Calculated', value: `${result.calculated}`, inline: true },
-        { name: '📝 Written to Airtable', value: `${result.written}`, inline: true },
-        { name: '⏭️ Skipped (No Views)', value: `${result.skippedNoViews}`, inline: true },
-        { name: '⏭️ Skipped (Unchanged)', value: `${result.skippedViewsUnchanged}`, inline: true },
-        { name: '⏭️ Skipped (No Creator)', value: `${result.skippedNoCreator}`, inline: true },
-      )
-      .setColor(result.errors > 0 ? '#FFA500' : '#43B581')
+      .setDescription('Successfully fetched latest view counts from YouTube/TikTok and processed payout calculations in the background.')
+      .setColor('#43B581')
       .setTimestamp();
-
-    if (result.skippedNoClipType > 0) {
-      embed.addFields({ name: '⏭️ Skipped (No Clip Type)', value: `${result.skippedNoClipType}`, inline: true });
-    }
-
-    if (result.errors > 0) {
-      const errList = result.errorMessages.slice(0, 5).join('\n');
-      embed.addFields({ name: `❌ Errors (${result.errors})`, value: errList || 'Check server logs', inline: false });
-    }
 
     await interaction.editReply({ embeds: [embed] });
   } catch (err: any) {
