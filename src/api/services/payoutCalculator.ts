@@ -86,11 +86,36 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// Diagnostic summary returned by calculatePayouts
+export interface PayoutResult {
+  totalRecords: number;
+  skippedNoViews: number;
+  skippedViewsUnchanged: number;
+  skippedNoCreator: number;
+  skippedNoClipType: number;
+  errors: number;
+  calculated: number;
+  written: number;
+  errorMessages: string[];
+}
+
 // Main payout calculation function
-export async function calculatePayouts(): Promise<void> {
+export async function calculatePayouts(): Promise<PayoutResult> {
+  const result: PayoutResult = {
+    totalRecords: 0,
+    skippedNoViews: 0,
+    skippedViewsUnchanged: 0,
+    skippedNoCreator: 0,
+    skippedNoClipType: 0,
+    errors: 0,
+    calculated: 0,
+    written: 0,
+    errorMessages: [],
+  };
+
   if (isCalculating) {
     logger.info('Payout calculation is already in progress. Skipping this pass.');
-    return;
+    return result;
   }
   isCalculating = true;
   logger.info('Starting payout calculation pass...');
@@ -101,21 +126,27 @@ export async function calculatePayouts(): Promise<void> {
       listAllAirtableRecords(config.airtable.teamMembersTable),
     ]);
 
+    result.totalRecords = submissions.length;
+    logger.info(`Fetched ${submissions.length} submissions and ${teamMembers.length} team members from Airtable.`);
+
     // Create a lookup map for Team Members (Campaigns) and their rates
     const rateMap = new Map<string, number>();
     for (const record of teamMembers) {
       const rate = record.fields['Rate Per Million ($)'] as number || 0;
       rateMap.set(record.id, rate);
+      logger.info(`Team Member ${record.id} (${record.fields['Name'] || 'Unknown'}): Rate = $${rate}/mil`);
     }
 
     const updates: { id: string; fields: any }[] = [];
 
     for (const record of submissions) {
       const f = record.fields;
+      const subId = f['Submission ID'] || record.id;
       const views = f['Views'] as number;
 
       // Skip if views are missing, undefined, null, 0, or NaN
       if (views === undefined || views === null || views === 0 || isNaN(views)) {
+        result.skippedNoViews++;
         continue;
       }
 
@@ -123,13 +154,15 @@ export async function calculatePayouts(): Promise<void> {
 
       // Skip if views haven't changed since last calculation
       if (views === lastCalculatedViews) {
+        result.skippedViewsUnchanged++;
         continue;
       }
 
       try {
         const creatorLinks = f['Creator'] as string[];
         if (!creatorLinks || creatorLinks.length === 0) {
-          logger.warn(`Skipping submission ${record.id} / ${f['Submission ID']}: No Creator linked.`);
+          logger.warn(`Skipping submission ${subId}: No Creator linked.`);
+          result.skippedNoCreator++;
           continue;
         }
 
@@ -141,9 +174,12 @@ export async function calculatePayouts(): Promise<void> {
         const hasEditor = !!(editorLinks && editorLinks.length > 0);
 
         if (!clipType) {
-          logger.warn(`Skipping submission ${record.id}: Clip Type is missing.`);
+          logger.warn(`Skipping submission ${subId}: Clip Type is missing.`);
+          result.skippedNoClipType++;
           continue;
         }
+
+        logger.info(`Processing ${subId}: Views=${views}, Creator=${creatorLinks[0]}, Rate=$${ratePerMillion}/mil, ClipType=${clipType}, Platform=${platform}`);
 
         const split = getSplit(clipType, platform, isAMOwnClip, hasEditor);
         const totalPayout = (views / 1_000_000) * ratePerMillion;
@@ -170,15 +206,20 @@ export async function calculatePayouts(): Promise<void> {
           }
         });
 
-        logger.info(`Calculated payout for ${f['Submission ID'] || record.id}: Total $${totalPayout.toFixed(2)} (Clipper: $${clipperPayout.toFixed(2)}, AM: $${amPayout.toFixed(2)})`);
+        result.calculated++;
+        logger.info(`Calculated payout for ${subId}: Total $${totalPayout.toFixed(2)} (Clipper: $${clipperPayout.toFixed(2)}, AM: $${amPayout.toFixed(2)})`);
       } catch (err: any) {
-        logger.error(`Failed to calculate payout for submission ${f['Submission ID'] || record.id}: ${err.message}`);
+        result.errors++;
+        const errMsg = `${subId}: ${err.message}`;
+        result.errorMessages.push(errMsg);
+        logger.error(`Failed to calculate payout for submission ${subId}: ${err.message}`);
       }
     }
 
     if (updates.length > 0) {
       logger.info(`Writing ${updates.length} payout updates to Airtable...`);
       await updateAirtableRecordsBatched(config.airtable.submissionsTable, updates);
+      result.written = updates.length;
       logger.info('Successfully updated payouts in Airtable.');
     } else {
       logger.info('No payouts needed calculation.');
@@ -186,7 +227,10 @@ export async function calculatePayouts(): Promise<void> {
 
   } catch (err: any) {
     logger.error('Error during payout calculation pass:', err.message);
+    result.errorMessages.push(err.message);
   } finally {
     isCalculating = false;
   }
+
+  return result;
 }

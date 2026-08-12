@@ -3,7 +3,7 @@ import axios from 'axios';
 import { config } from '../../shared/config.js';
 import { query } from '../../shared/db.js';
 import { logger } from '../../shared/logger.js';
-import { calculatePayouts } from './payoutCalculator.js';
+import { calculatePayouts, PayoutResult } from './payoutCalculator.js';
 import { TikTokService } from './tiktok.js';
 
 let isRunning = false;
@@ -120,7 +120,7 @@ async function updateAirtableRecordsBatched(table: string, updates: { id: string
 }
 
 // Main function to check and update views
-export async function checkAndUpdateViews(): Promise<boolean> {
+export async function checkAndUpdateViews(): Promise<PayoutResult | false> {
   if (isRunning) {
     logger.info('View checker is already running. Skipping this pass.');
     return false;
@@ -228,8 +228,8 @@ export async function checkAndUpdateViews(): Promise<boolean> {
     logger.info('View checking pass completed. Triggering payout calculations...');
 
     // 3. Trigger payout calculation
-    await calculatePayouts();
-    return true;
+    const payoutResult = await calculatePayouts();
+    return payoutResult;
 
   } catch (err: any) {
     logger.error('Error during view checking pass:', err.message);
