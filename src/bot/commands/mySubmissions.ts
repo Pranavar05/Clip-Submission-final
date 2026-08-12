@@ -60,6 +60,6 @@ export async function executeMySubmissions(interaction: ChatInputCommandInteract
     await interaction.editReply({ embeds: [embed] });
   } catch (err: any) {
     logger.error(`Failed to fetch submissions for user ${userId}:`, err.message);
-    await interaction.editReply({ content: '❌ Failed to fetch your submissions. Please try again later.' });
+    await interaction.editReply({ content: `❌ Failed to fetch your submissions: ${err.message}` });
   }
 }
