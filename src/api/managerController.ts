@@ -67,7 +67,7 @@ export async function handleGetManagerSubmissions(req: Request, res: Response): 
 
 export async function handleReviewSubmission(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
-  const { action, note, managerId, managerName } = req.body;
+  const { action, note, managerId, managerName, postedUrl, platform } = req.body;
 
   if (!action || !managerId || !managerName) {
     res.status(400).json({ success: false, message: 'Missing action, managerId, or managerName.' });
@@ -105,7 +105,7 @@ export async function handleReviewSubmission(req: Request, res: Response): Promi
     );
 
     // 3. Update Airtable
-    await AirtableService.updateSubmissionReviewStatus(id, airtableStatus, managerName, note);
+    await AirtableService.updateSubmissionReviewStatus(id, airtableStatus, managerName, note, postedUrl, platform);
 
     res.status(200).json({ success: true, message: `Submission successfully ${dbStatus.toLowerCase()}.` });
   } catch (err: any) {

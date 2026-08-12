@@ -326,7 +326,9 @@ export class AirtableService {
     submissionId: string,
     status: 'Completed' | 'Rejected',
     managerName: string,
-    note?: string
+    note?: string,
+    postedUrl?: string,
+    platform?: string
   ): Promise<void> {
     if (config.mockAirtable) {
       logger.info(`[MOCK AIRTABLE] Simulating update review status for ID: ${submissionId} to ${status} by ${managerName}`);
@@ -362,6 +364,12 @@ export class AirtableService {
 
       if (note) {
         fields['Note'] = note;
+      }
+      if (postedUrl) {
+        fields['Posted URL'] = postedUrl;
+      }
+      if (platform) {
+        fields['Platform'] = platform;
       }
 
       const updateOp = () => new Promise<void>((resolve, reject) => {

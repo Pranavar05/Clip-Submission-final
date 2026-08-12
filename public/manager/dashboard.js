@@ -1,6 +1,9 @@
 (function () {
   let currentManager = null;
   let activeRejectId = null;
+  let activeApproveId = null;
+  let allSubmissions = [];
+  let currentFilter = 'all';
 
   // Cache DOM Elements
   const appHeader = document.getElementById('app-header');
@@ -20,6 +23,13 @@
   const rejectNoteInput = document.getElementById('reject-note-input');
   const btnModalCancel = document.getElementById('btn-modal-cancel');
   const btnModalSubmit = document.getElementById('btn-modal-submit');
+  
+  const approveModal = document.getElementById('approve-modal');
+  const approveUrlInput = document.getElementById('approve-url-input');
+  const approvePlatformSelect = document.getElementById('approve-platform-select');
+  const btnApproveModalCancel = document.getElementById('btn-approve-modal-cancel');
+  const btnApproveModalSubmit = document.getElementById('btn-approve-modal-submit');
+  
   const toastContainer = document.getElementById('toast-container');
 
   // Initialize
@@ -43,6 +53,29 @@
     btnRefresh.addEventListener('click', loadSubmissions);
     btnModalCancel.addEventListener('click', closeRejectModal);
     btnModalSubmit.addEventListener('click', submitRejection);
+    btnApproveModalCancel.addEventListener('click', closeApproveModal);
+    btnApproveModalSubmit.addEventListener('click', submitApproval);
+
+    // Tab Listeners
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.tab-btn').forEach(t => {
+          t.classList.remove('active');
+          t.style.color = 'var(--text-muted)';
+          t.style.fontWeight = '600';
+          t.style.borderBottom = 'none';
+        });
+        
+        const clickedTab = e.currentTarget;
+        clickedTab.classList.add('active');
+        clickedTab.style.color = 'var(--text-color)';
+        clickedTab.style.fontWeight = '700';
+        clickedTab.style.borderBottom = '3px solid var(--primary-color)';
+        
+        currentFilter = clickedTab.dataset.type;
+        filterAndRenderSubmissions();
+      });
+    });
   }
 
   function showLogin() {
@@ -103,7 +136,8 @@
       const data = await response.json();
 
       if (response.ok && data.success) {
-        renderSubmissions(data.submissions);
+        allSubmissions = data.submissions;
+        filterAndRenderSubmissions();
       } else {
         showToast(data.message || 'Failed to load submissions.', 'error');
       }
@@ -178,7 +212,7 @@
 
       // Attach actions to buttons inside card
       if (!isFlaggedByOthers) {
-        card.querySelector('.btn-approve').addEventListener('click', () => handleAction(sub.id, 'approve'));
+        card.querySelector('.btn-approve').addEventListener('click', () => openApproveModal(sub.id));
         card.querySelector('.btn-reject').addEventListener('click', () => openRejectModal(sub.id));
         card.querySelector('.btn-flag').addEventListener('click', () => toggleFlag(sub.id));
       }
@@ -187,7 +221,7 @@
     });
   }
 
-  async function handleAction(id, action, note = '') {
+  async function handleAction(id, action, note = '', postedUrl = '', platform = '') {
     try {
       const response = await fetch(`/api/manager/submissions/${id}/review`, {
         method: 'POST',
@@ -196,7 +230,9 @@
           action,
           note,
           managerId: currentManager.id,
-          managerName: currentManager.name
+          managerName: currentManager.name,
+          postedUrl,
+          platform
         })
       });
 
@@ -252,6 +288,57 @@
     
     handleAction(activeRejectId, 'reject', note);
     closeRejectModal();
+  }
+
+  function openApproveModal(id) {
+    activeApproveId = id;
+    approveUrlInput.value = '';
+    approvePlatformSelect.value = 'YouTube';
+    approveModal.style.display = 'flex';
+  }
+
+  function closeApproveModal() {
+    activeApproveId = null;
+    approveModal.style.display = 'none';
+  }
+
+  function submitApproval() {
+    const url = approveUrlInput.value.trim();
+    const platform = approvePlatformSelect.value;
+    if (!url) {
+      showToast('⚠️ Please enter a posted URL.', 'error');
+      return;
+    }
+
+    try {
+      new URL(url);
+    } catch (_) {
+      showToast('⚠️ Please enter a valid URL (starting with http:// or https://).', 'error');
+      return;
+    }
+
+    handleAction(activeApproveId, 'approve', '', url, platform);
+    closeApproveModal();
+  }
+
+  function filterAndRenderSubmissions() {
+    let filtered = allSubmissions;
+    const queueTitle = document.getElementById('queue-title');
+    const queueDesc = document.getElementById('queue-description');
+
+    if (currentFilter === 'all') {
+      if (queueTitle) queueTitle.textContent = 'Active Submissions Queue';
+      if (queueDesc) queueDesc.textContent = 'Review pending video clips and approve them for views tracking';
+    } else {
+      const typeLabel = currentFilter.charAt(0).toUpperCase() + currentFilter.slice(1);
+      if (queueTitle) queueTitle.textContent = `${typeLabel} Submissions Queue`;
+      if (queueDesc) queueDesc.textContent = `Review pending ${currentFilter.toLowerCase()} clips and approve them for views tracking`;
+
+      filtered = allSubmissions.filter(sub => {
+        return sub.clipType && sub.clipType.toLowerCase() === currentFilter.toLowerCase();
+      });
+    }
+    renderSubmissions(filtered);
   }
 
   function showToast(message, type = 'info') {
