@@ -2,6 +2,9 @@ import Airtable from 'airtable';
 import { config } from '../../shared/config.js';
 import { logger } from '../../shared/logger.js';
 
+// Load pure payout calculator engine
+const payoutCalcEngine = require('../../../new-payout-cal/payout_calculator.js');
+
 let isCalculating = false;
 
 // Initialize Airtable base
@@ -10,37 +13,6 @@ function getBase(): Airtable.Base {
     throw new Error('Airtable configuration missing (apiKey or baseId).');
   }
   return new Airtable({ apiKey: config.airtable.apiKey }).base(config.airtable.baseId);
-}
-
-// Get the splits based on Clip Type, Platform, and AM ownership
-function getSplit(clipType: string, platform: string, isAMOwnClip: boolean, hasEditor: boolean) {
-  if (isAMOwnClip) {
-    if (clipType === 'Stolen') return { clipper: 0, editor: 0, am: 0.7, owner: 0.3 };
-    if (clipType === 'Original-Edited' || clipType === 'Edited') return { clipper: 0, editor: 0, am: 0.8, owner: 0.2 };
-    throw new Error(
-      `"Is AM's Own Clip" is checked but Clip Type is "${clipType}" — only Stolen or Original-Edited/Edited apply.`
-    );
-  }
-
-  if (clipType === 'Stolen') return { clipper: 0.3, editor: 0, am: 0.4, owner: 0.3 };
-  if (clipType === 'Raw') return { clipper: 0.2, editor: 0, am: 0.6, owner: 0.2 };
-
-  if (clipType === 'Raw-Split Edit') {
-    if (!hasEditor) {
-      throw new Error(
-        `Clip Type is "Raw-Split Edit" but no Editor is linked. An Editor must be linked for this clip type.`
-      );
-    }
-    if (platform === 'YouTube') return { clipper: 0.2, editor: 0.4, am: 0.2, owner: 0.2 };
-    return { clipper: 0.2, editor: 0.35, am: 0.25, owner: 0.2 };
-  }
-
-  if (clipType === 'Original-Edited' || clipType === 'Edited') {
-    if (platform === 'YouTube') return { clipper: 0.6, editor: 0, am: 0.2, owner: 0.2 };
-    return { clipper: 0.55, editor: 0, am: 0.25, owner: 0.2 };
-  }
-
-  throw new Error(`Unrecognized Clip Type: "${clipType}"`);
 }
 
 // Fetch all records from an Airtable table (handles pagination)
@@ -68,22 +40,35 @@ async function updateAirtableRecordsBatched(table: string, updates: { id: string
   const base = getBase();
   const CHUNK_SIZE = 10;
   for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
-    const chunk = updates.slice(i, i + CHUNK_SIZE);
-    try {
-      await new Promise<void>((resolve, reject) => {
-        base(table).update(chunk, (err: any) => {
-          if (err) reject(err);
-          else resolve();
+    let chunk = updates.slice(i, i + CHUNK_SIZE);
+    let attempts = 0;
+    while (chunk.length > 0 && attempts < 5) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          base(table).update(chunk, (err: any) => {
+            if (err) reject(err);
+            else resolve();
+          });
         });
-      });
-    } catch (err: any) {
-      logger.error(`Airtable batch update failed: ${err.message}`);
+        break; // Success
+      } catch (err: any) {
+        const unknownFieldMatch = err.message?.match(/Unknown field name:\s*"([^"]+)"/);
+        if (unknownFieldMatch) {
+          const badField = unknownFieldMatch[1];
+          logger.warn(`Airtable ${table} table is missing field "${badField}". Retrying batch update without it...`);
+          chunk = chunk.map(item => {
+            const copy = { ...item.fields };
+            delete copy[badField];
+            return { id: item.id, fields: copy };
+          });
+          attempts++;
+        } else {
+          logger.error(`Airtable batch update failed: ${err.message}`);
+          break;
+        }
+      }
     }
   }
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
 }
 
 // Diagnostic summary returned by calculatePayouts
@@ -120,21 +105,28 @@ export async function calculatePayouts(): Promise<PayoutResult> {
   isCalculating = true;
   logger.info('Starting payout calculation pass...');
 
+  // Validate split table definitions at startup
+  const splitProblems = payoutCalcEngine.validateSplits();
+  if (splitProblems.length > 0) {
+    logger.error(`Split table configuration errors:\n${splitProblems.join('\n')}`);
+  }
+
   try {
-    const [submissions, teamMembers] = await Promise.all([
+    const [submissions, creatorRecords] = await Promise.all([
       listAllAirtableRecords(config.airtable.submissionsTable),
-      listAllAirtableRecords(config.airtable.teamMembersTable),
+      listAllAirtableRecords(config.airtable.creatorsTable),
     ]);
 
     result.totalRecords = submissions.length;
-    logger.info(`Fetched ${submissions.length} submissions and ${teamMembers.length} team members from Airtable.`);
+    logger.info(`Fetched ${submissions.length} submissions and ${creatorRecords.length} creator records from Airtable.`);
 
-    // Create a lookup map for Team Members (Campaigns) and their rates
+    // Create a lookup map for Creators and their rates from Creators table
     const rateMap = new Map<string, number>();
-    for (const record of teamMembers) {
+    for (const record of creatorRecords) {
       const rate = record.fields['Rate Per Million ($)'] as number || 0;
+      const creatorName = record.fields['Streamer/Creator'] || record.fields['Name'] || 'Unknown';
       rateMap.set(record.id, rate);
-      logger.info(`Team Member ${record.id} (${record.fields['Name'] || 'Unknown'}): Rate = $${rate}/mil`);
+      logger.info(`Creator ${record.id} (${creatorName}): Rate = $${rate}/mil`);
     }
 
     const updates: { id: string; fields: any }[] = [];
@@ -171,7 +163,9 @@ export async function calculatePayouts(): Promise<PayoutResult> {
         const clipType = f['Clip Type'] as string;
         const isAMOwnClip = f["Is AM's Own Clip"] === true;
         const editorLinks = f['Editor'] as string[];
+        const clipperLinks = f['Clipper'] as string[];
         const hasEditor = !!(editorLinks && editorLinks.length > 0);
+        const hasClipper = !!(clipperLinks && clipperLinks.length > 0);
 
         if (!clipType) {
           logger.warn(`Skipping submission ${subId}: Clip Type is missing.`);
@@ -181,33 +175,40 @@ export async function calculatePayouts(): Promise<PayoutResult> {
 
         logger.info(`Processing ${subId}: Views=${views}, Creator=${creatorLinks[0]}, Rate=$${ratePerMillion}/mil, ClipType=${clipType}, Platform=${platform}`);
 
-        const split = getSplit(clipType, platform, isAMOwnClip, hasEditor);
-        const totalPayout = (views / 1_000_000) * ratePerMillion;
+        // Execute pure payout engine calculation
+        const payoutCalc = payoutCalcEngine.calculatePayout({
+          views,
+          ratePerMillion,
+          clipType,
+          platform,
+          isAMOwnClip,
+          hasEditor,
+          hasClipper,
+        });
 
-        const clipperPayout = totalPayout * split.clipper;
-        const editorPayout = totalPayout * split.editor;
-        const amPayout = totalPayout * split.am;
-        const ownerPayout = totalPayout * split.owner;
+        if (payoutCalc.warnings && payoutCalc.warnings.length > 0) {
+          payoutCalc.warnings.forEach((w: string) => logger.warn(`Submission ${subId} warning: ${w}`));
+        }
 
         updates.push({
           id: record.id,
           fields: {
-            'Clipper %': split.clipper * 100,
-            'Editor %': split.editor * 100,
-            'AM %': split.am * 100,
-            'Owner %': split.owner * 100,
-            'Clipper Payout ($)': round2(clipperPayout),
-            'Editor Payout ($)': round2(editorPayout),
-            'AM Payout ($)': round2(amPayout),
-            'Owner Payout ($)': round2(ownerPayout),
-            'Total Payout ($)': round2(totalPayout),
+            'Clipper %': payoutCalc.percentages.clipper,
+            'Editor %': payoutCalc.percentages.editor,
+            'AM %': payoutCalc.percentages.accountManager,
+            'Owner %': payoutCalc.percentages.agency,
+            'Clipper Payout ($)': payoutCalc.payouts.clipper,
+            'Editor Payout ($)': payoutCalc.payouts.editor,
+            'AM Payout ($)': payoutCalc.payouts.accountManager,
+            'Owner Payout ($)': payoutCalc.payouts.agency,
+            'Total Payout ($)': payoutCalc.total,
             'Last Calculated Views': views,
             'Rate Used ($/mil)': ratePerMillion,
           }
         });
 
         result.calculated++;
-        logger.info(`Calculated payout for ${subId}: Total $${totalPayout.toFixed(2)} (Clipper: $${clipperPayout.toFixed(2)}, AM: $${amPayout.toFixed(2)})`);
+        logger.info(`Calculated payout for ${subId}: Total $${payoutCalc.total.toFixed(2)} (Clipper: $${payoutCalc.payouts.clipper.toFixed(2)}, AM: $${payoutCalc.payouts.accountManager.toFixed(2)}, Agency/Owner: $${payoutCalc.payouts.agency.toFixed(2)})`);
       } catch (err: any) {
         result.errors++;
         const errMsg = `${subId}: ${err.message}`;
@@ -234,3 +235,4 @@ export async function calculatePayouts(): Promise<PayoutResult> {
 
   return result;
 }
+

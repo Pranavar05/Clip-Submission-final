@@ -99,19 +99,19 @@ export class AirtableService {
       const base = this.getBase();
       let activeCreators: { id: string; name: string }[] = [];
 
-      logger.info(`Attempting to fetch creators from ${config.airtable.teamMembersTable} table...`);
+      logger.info(`Attempting to fetch creators from ${config.airtable.creatorsTable} table...`);
       const fetchCreatorsOp = () => new Promise<{ id: string; name: string }[]>((resolve, reject) => {
         const records: { id: string; name: string }[] = [];
-        base(config.airtable.teamMembersTable)
+        base(config.airtable.creatorsTable)
           .select({
             // Fetch if Status is not Inactive (includes empty/blank and Active)
             filterByFormula: `NOT({Status} = 'Inactive')`,
-            fields: ['Name']
+            fields: ['Streamer/Creator', 'Name', 'Campaign Name']
           })
           .eachPage(
             (pageRecords, fetchNextPage) => {
               pageRecords.forEach(rec => {
-                const name = rec.get('Name') as string;
+                const name = (rec.get('Streamer/Creator') || rec.get('Campaign Name') || rec.get('Name')) as string;
                 if (name) records.push({ id: rec.id, name });
               });
               fetchNextPage();
@@ -124,7 +124,7 @@ export class AirtableService {
       });
 
       activeCreators = await this.executeWithRetry(fetchCreatorsOp);
-      logger.info(`Fetched ${activeCreators.length} creators from ${config.airtable.teamMembersTable} table.`);
+      logger.info(`Fetched ${activeCreators.length} creators from ${config.airtable.creatorsTable} table.`);
 
       // Sync fetched creators to local database to satisfy foreign key constraints
       for (const creator of activeCreators) {
@@ -538,18 +538,18 @@ export class AirtableService {
       const base = this.getBase();
       let activeCampaigns: { id: string; name: string; rate: number; status: string }[] = [];
 
-      logger.info(`Fetching active campaigns and rates from ${config.airtable.teamMembersTable} table...`);
+      logger.info(`Fetching active campaigns and rates from ${config.airtable.creatorsTable} table...`);
       const fetchOp = () => new Promise<{ id: string; name: string; rate: number; status: string }[]>((resolve, reject) => {
         const records: { id: string; name: string; rate: number; status: string }[] = [];
-        base(config.airtable.teamMembersTable)
+        base(config.airtable.creatorsTable)
           .select({
             filterByFormula: `NOT({Status} = 'Inactive')`,
-            fields: ['Name', 'Rate Per Million ($)', 'Status']
+            fields: ['Streamer/Creator', 'Campaign Name', 'Name', 'Rate Per Million ($)', 'Status']
           })
           .eachPage(
             (pageRecords, fetchNextPage) => {
               pageRecords.forEach(rec => {
-                const name = rec.get('Name') as string;
+                const name = (rec.get('Streamer/Creator') || rec.get('Campaign Name') || rec.get('Name')) as string;
                 const rate = rec.get('Rate Per Million ($)') as number || 0;
                 const status = rec.get('Status') as string || 'Active';
                 if (name) records.push({ id: rec.id, name, rate, status });
