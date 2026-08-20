@@ -213,22 +213,14 @@ export class AirtableService {
     }
 
     // REAL AIRTABLE MODE
+    // Only include fields that exist in the new "Clip Payout Tracker" Submissions table.
+    // Fields: Submission ID, Creator (linked), Clipper (linked), Platform, Video URL
+    // Payout fields (Clipper %, AM %, etc.) are auto-calculated by the payout engine.
     const base = this.getBase();
     const fields: Record<string, any> = {
       'Submission ID': payload.submissionId,
-      'Clip Type': payload.clipType,
-      'Discord User ID': payload.userId,
-      'Discord Username': payload.discordUser,
-      'Discord Channel ID': payload.channelId,
       'Creator': [payload.creatorId],
-      'Editor': [payload.creatorId],
-      'R2 File URL': videoFileUrl,
-      'Original Filename': videoFileName,
-      'File Size (MB)': Number((videoSizeBytes / (1024 * 1024)).toFixed(2)),
-      'Note': payload.description || '',
-      'Queue Status': 'Completed',
-      'Created At': payload.submittedAt,
-      'Updated At': new Date().toISOString()
+      'Video URL': videoFileUrl,
     };
 
     logger.info(`Submitting record in Airtable for user ID: ${payload.userId}, Submission ID: ${payload.submissionId}`);
@@ -238,7 +230,7 @@ export class AirtableService {
       base(config.airtable.submissionsTable).create([{ fields }], (err: any, records: any) => {
         if (err) {
           logger.error(`Airtable API create error: ${err.message}`, { statusCode: err.statusCode, error: err.error, type: err.type });
-          // Handle unknown field errors by stripping the offending field and retrying once
+          // Handle unknown field errors by stripping the offending field and retrying
           const unknownFieldMatch = err.message?.match(/Unknown field name:\s*"([^"]+)"/);
           if (unknownFieldMatch) {
             const badField = unknownFieldMatch[1];
