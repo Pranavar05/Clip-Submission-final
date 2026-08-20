@@ -106,12 +106,12 @@ export class AirtableService {
           .select({
             // Fetch if Status is not Inactive (includes empty/blank and Active)
             filterByFormula: `NOT({Status} = 'Inactive')`,
-            fields: ['Streamer/Creator', 'Name', 'Campaign Name']
+            fields: ['Streamer/Creator', 'Campaign Name']
           })
           .eachPage(
             (pageRecords, fetchNextPage) => {
               pageRecords.forEach(rec => {
-                const name = (rec.get('Streamer/Creator') || rec.get('Campaign Name') || rec.get('Name')) as string;
+                const name = (rec.get('Streamer/Creator') || rec.get('Campaign Name')) as string;
                 if (name) records.push({ id: rec.id, name });
               });
               fetchNextPage();
@@ -544,12 +544,12 @@ export class AirtableService {
         base(config.airtable.creatorsTable)
           .select({
             filterByFormula: `NOT({Status} = 'Inactive')`,
-            fields: ['Streamer/Creator', 'Campaign Name', 'Name', 'Rate Per Million ($)', 'Status']
+            fields: ['Streamer/Creator', 'Campaign Name', 'Rate Per Million ($)', 'Status']
           })
           .eachPage(
             (pageRecords, fetchNextPage) => {
               pageRecords.forEach(rec => {
-                const name = (rec.get('Streamer/Creator') || rec.get('Campaign Name') || rec.get('Name')) as string;
+                const name = (rec.get('Streamer/Creator') || rec.get('Campaign Name')) as string;
                 const rate = rec.get('Rate Per Million ($)') as number || 0;
                 const status = rec.get('Status') as string || 'Active';
                 if (name) records.push({ id: rec.id, name, rate, status });
