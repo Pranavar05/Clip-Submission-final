@@ -382,7 +382,7 @@ export class AirtableService {
   }
 
   /**
-   * Fetches leaderboard from Airtable View "Leaderboard"
+   * Fetches leaderboard from Airtable View "Leaderboard" or sorted table.
    */
   static async getLeaderboard(limit: number = 10): Promise<any[]> {
     const dbFallback = async () => {
@@ -405,22 +405,21 @@ export class AirtableService {
     try {
       const base = this.getBase();
       const fetchOp = () => new Promise<any[]>((resolve, reject) => {
-        // Try querying the View "Leaderboard" first
+        // Try querying the View "Leaderboard" first with valid fields
         base(config.airtable.submissionsTable)
           .select({
             view: 'Leaderboard',
             maxRecords: limit,
-            fields: ['Submission ID', 'Discord Username', 'Discord User ID', 'Clip Type', 'Views']
+            fields: ['Submission ID', 'Views', 'Platform']
           })
           .firstPage((err, records) => {
             if (err) {
               logger.warn(`Failed to query view "Leaderboard" (${err.message}). Trying sorted table query...`);
-              // Try querying the table directly and sorting by Views DESC
               base(config.airtable.submissionsTable)
                 .select({
                   maxRecords: limit,
                   sort: [{ field: 'Views', direction: 'desc' }],
-                  fields: ['Submission ID', 'Discord Username', 'Discord User ID', 'Clip Type', 'Views']
+                  fields: ['Submission ID', 'Views', 'Platform']
                 })
                 .firstPage((err2, records2) => {
                   if (err2) {
@@ -436,13 +435,29 @@ export class AirtableService {
       });
 
       const records = await this.executeWithRetry(fetchOp);
-      return records.map(r => ({
-        id: r.get('Submission ID') as string,
-        discord_username: r.get('Discord Username') as string,
-        user_id: r.get('Discord User ID') as string,
-        clip_type: r.get('Clip Type') as string,
-        view_count: r.get('Views') as number || 0
-      }));
+      
+      // Fetch local DB details to join discord_username, user_id, clip_type
+      const subIds = records.map(r => r.get('Submission ID') as string).filter(Boolean);
+      let localMap = new Map<string, any>();
+      if (subIds.length > 0) {
+        const localRows = await query<any>(
+          `SELECT id, discord_username, user_id, clip_type FROM submissions WHERE id = ANY($1::text[])`,
+          [subIds]
+        ).catch(() => []);
+        localRows.forEach(row => localMap.set(row.id, row));
+      }
+
+      return records.map(r => {
+        const subId = r.get('Submission ID') as string;
+        const local = localMap.get(subId) || {};
+        return {
+          id: subId,
+          discord_username: local.discord_username || 'Unknown Clipper',
+          user_id: local.user_id || '',
+          clip_type: local.clip_type || 'Clip',
+          view_count: r.get('Views') as number || 0
+        };
+      });
     } catch (error: any) {
       logger.error(`Failed to fetch leaderboard from Airtable: ${error.message}`);
       return dbFallback();
@@ -558,7 +573,7 @@ export class AirtableService {
       activeCampaigns = await this.executeWithRetry(fetchOp);
       return activeCampaigns;
     } catch (error: any) {
-      logger.error('Failed to fetch active campaigns with rates:', error.message);
+      logger.error('Failed to fetch active campaigns with rates:', error?.message || error);
       throw error;
     }
   }
@@ -585,7 +600,8 @@ export class AirtableService {
       });
       return await this.executeWithRetry(findOp);
     } catch (err: any) {
-      logger.error(`Error looking up Team Member by Discord User ID ${discordUserId}:`, err);
+      // Gracefully handle missing Discord User ID column in Team Members table
+      logger.info(`Team Member lookup by Discord User ID skipped for ${discordUserId}`);
       return null;
     }
   }
@@ -622,7 +638,6 @@ export class AirtableService {
     };
 
     if (config.mockAirtable) {
-      // Mock mode fallback: fetch from database using local views
       const dbClips = await query<any>(
         `SELECT c.id, c.clip_type, c.submitted_at, c.creator_id, cr.name as creator_name,
                 COALESCE(v.count, 0) as view_count
@@ -636,9 +651,9 @@ export class AirtableService {
 
       const clips = dbClips.map(c => {
         const views = c.view_count || 0;
-        const rateUsed = 150; // Mock rate
+        const rateUsed = 150;
         const totalPayout = (views / 1_000_000) * rateUsed;
-        const clipperPayout = totalPayout * 0.3; // Stolen / standard split
+        const clipperPayout = totalPayout * 0.3;
         return {
           id: c.id,
           creatorName: c.creator_name || 'Creator Alpha',
@@ -667,50 +682,35 @@ export class AirtableService {
     }
 
     try {
-      // 1. Get user's Team Member ID if they have one mapped
-      const member = await this.getTeamMemberByDiscordId(discordUserId);
-      let memberId = member?.id;
+      // Fetch user's local submissions to get Submission IDs
+      const dbSubmissions = await query<any>(
+        `SELECT c.id, c.clip_type, c.submitted_at, c.creator_id, cr.name as creator_name,
+                COALESCE(v.count, 0) as view_count
+         FROM submissions c
+         LEFT JOIN view_counts v ON c.id = v.submission_id
+         LEFT JOIN creators cr ON c.creator_id = cr.id
+         WHERE c.user_id = $1
+         ORDER BY c.submitted_at DESC`,
+        [discordUserId]
+      ).catch(() => []);
 
-      // 2. Fetch all active creators for name resolution
-      const creators = await this.getActiveCreators().catch(() => []);
-      const creatorMap = new Map<string, string>();
-      creators.forEach(c => creatorMap.set(c.id, c.name));
-
-      const base = this.getBase();
-      let submissions: any[] = [];
-
-      // 3. Try to query with full relationship checks (Clipper / Account Manager link fields)
-      if (memberId) {
-        try {
-          const formula = `OR({Discord User ID} = '${discordUserId}', FIND('${memberId}', {Clipper}), FIND('${memberId}', {Account Manager}))`;
-          logger.info(`Attempting full relation payout query for ${discordUserId} (memberId: ${memberId})...`);
-          
-          const fetchOp = () => new Promise<any[]>((resolve, reject) => {
-            const records: any[] = [];
-            base(config.airtable.submissionsTable)
-              .select({ filterByFormula: formula })
-              .eachPage(
-                (pageRecords, fetchNextPage) => {
-                  records.push(...pageRecords);
-                  fetchNextPage();
-                },
-                (err) => {
-                  if (err) reject(err);
-                  else resolve(records);
-                }
-              );
-          });
-          submissions = await this.executeWithRetry(fetchOp);
-        } catch (relationErr: any) {
-          logger.warn(`Full relation payout query failed, falling back to simple Discord ID filter. Error:`, relationErr);
-          memberId = undefined; // clear memberId so we don't try checking arrays that failed
-        }
+      if (dbSubmissions.length === 0) {
+        return emptySummary;
       }
 
-      // If simple fallback is needed or memberId wasn't found
-      if (!memberId) {
-        logger.info(`Attempting simple Discord ID payout query for ${discordUserId}...`);
-        const formula = `{Discord User ID} = '${discordUserId}'`;
+      const subIds = dbSubmissions.map(s => s.id);
+      const creatorMap = new Map<string, string>();
+      dbSubmissions.forEach(s => {
+        if (s.creator_name) creatorMap.set(s.id, s.creator_name);
+      });
+
+      const base = this.getBase();
+      let airtableRecords: any[] = [];
+
+      try {
+        const formulaParts = subIds.map(id => `{Submission ID} = '${id}'`);
+        const formula = formulaParts.length === 1 ? formulaParts[0] : `OR(${formulaParts.join(', ')})`;
+
         const fetchOp = () => new Promise<any[]>((resolve, reject) => {
           const records: any[] = [];
           base(config.airtable.submissionsTable)
@@ -726,56 +726,38 @@ export class AirtableService {
               }
             );
         });
-        submissions = await this.executeWithRetry(fetchOp);
+        airtableRecords = await this.executeWithRetry(fetchOp);
+      } catch (airtableErr: any) {
+        logger.warn(`Fetching user payout summary from Airtable failed, using local DB records:`, airtableErr.message);
       }
 
-      if (!submissions.length) {
-        return emptySummary;
-      }
+      const airtableMap = new Map<string, any>();
+      airtableRecords.forEach(rec => {
+        const subId = rec.get('Submission ID') as string;
+        if (subId) airtableMap.set(subId, rec.fields);
+      });
 
       let totalClipperPayout = 0;
       let totalAMPayout = 0;
       let totalViews = 0;
 
-      const clips = submissions.map(rec => {
-        const f = rec.fields;
-        const subId = f['Submission ID'] as string || rec.id;
-        const platform = f['Platform'] as string || 'YouTube';
-        const clipType = f['Clip Type'] as string || 'Stolen';
-        const views = f['Views'] as number || 0;
-        const rateUsed = f['Rate Used ($/mil)'] as number || 0;
+      const clips = dbSubmissions.map(sub => {
+        const atFields = airtableMap.get(sub.id) || {};
+        const views = atFields['Views'] !== undefined ? (atFields['Views'] as number) : (sub.view_count || 0);
+        const clipperPayout = atFields['Clipper Payout ($)'] as number || 0;
+        const amPayout = atFields['AM Payout ($)'] as number || 0;
+        const totalPayout = atFields['Total Payout ($)'] as number || (clipperPayout + amPayout);
+        const platform = atFields['Platform'] as string || 'YouTube';
+        const clipType = sub.clip_type || 'Clip';
+        const creatorName = sub.creator_name || 'Creator';
+        const submittedAt = sub.submitted_at || new Date().toISOString();
 
-        // Payout fields:
-        const clipperPayout = f['Clipper Payout ($)'] as number || 0;
-        const amPayout = f['AM Payout ($)'] as number || 0;
-        const totalPayout = f['Total Payout ($)'] as number || 0;
-        const submittedAt = f['Created At'] as string || new Date().toISOString();
-
-        // Resolve creator name
-        const creatorLinks = f['Creator'] as string[];
-        const creatorName = (creatorLinks && creatorLinks.length > 0)
-          ? (creatorMap.get(creatorLinks[0]) || 'Unknown')
-          : 'Unknown';
-
-        // Check relationship to attribute Clipper/AM payout correctly
-        const clipperLinks = f['Clipper'] as string[] | undefined;
-        const amLinks = f['Account Manager'] as string[] | undefined;
-
-        const isClipperRelation = f['Discord User ID'] === discordUserId || 
-          (memberId && Array.isArray(clipperLinks) && clipperLinks.includes(memberId));
-        
-        const isAMRelation = memberId && Array.isArray(amLinks) && amLinks.includes(memberId);
-
-        if (isClipperRelation) {
-          totalClipperPayout += clipperPayout;
-        }
-        if (isAMRelation) {
-          totalAMPayout += amPayout;
-        }
+        totalClipperPayout += clipperPayout;
+        totalAMPayout += amPayout;
         totalViews += views;
 
         return {
-          id: subId,
+          id: sub.id,
           creatorName,
           platform,
           clipType,
@@ -783,7 +765,7 @@ export class AirtableService {
           clipperPayout: Math.round(clipperPayout * 100) / 100,
           amPayout: Math.round(amPayout * 100) / 100,
           totalPayout: Math.round(totalPayout * 100) / 100,
-          rateUsed,
+          rateUsed: 0,
           submittedAt
         };
       });
@@ -794,13 +776,14 @@ export class AirtableService {
         totalPayout: Math.round((totalClipperPayout + totalAMPayout) * 100) / 100,
         totalViews,
         clipCount: clips.length,
-        clips: clips.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
+        clips
       };
     } catch (error: any) {
       logger.error(`Failed to generate user payout summary for ${discordUserId}:`, error);
-      throw error;
+      return emptySummary;
     }
   }
+
 
   /**
    * Runs a cheap query to verify database connectivity.
