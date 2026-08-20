@@ -143,9 +143,8 @@ export async function checkAndUpdateViews(): Promise<PayoutResult | false> {
 
     for (const record of submissions) {
       const f = record.fields;
-      // IMPORTANT: Only use 'Posted URL' — never fall back to 'link' (which may be a
-      // lookup/formula field referencing a different record's URL, causing wrong-row updates).
-      const postedUrl = f['Posted URL'] as string;
+      // Check Posted URL first, fallback to Video URL if it contains a YouTube or TikTok link
+      const postedUrl = (f['Posted URL'] || f['Video URL']) as string;
       if (!postedUrl || typeof postedUrl !== 'string') continue;
 
       const platform = detectPlatform(postedUrl);

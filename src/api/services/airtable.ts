@@ -213,15 +213,22 @@ export class AirtableService {
     }
 
     // REAL AIRTABLE MODE
-    // Only include fields that exist in the new "Clip Payout Tracker" Submissions table.
-    // Fields: Submission ID, Creator (linked), Clipper (linked), Platform, Video URL
-    // Payout fields (Clipper %, AM %, etc.) are auto-calculated by the payout engine.
     const base = this.getBase();
     const fields: Record<string, any> = {
       'Submission ID': payload.submissionId,
       'Creator': [payload.creatorId],
       'Video URL': videoFileUrl,
     };
+
+    // Attempt to link Clipper if the user's Discord ID is matched in Team Members
+    try {
+      const member = await this.getTeamMemberByDiscordId(payload.userId);
+      if (member?.id) {
+        fields['Clipper'] = [member.id];
+      }
+    } catch {
+      // Ignore if Clipper lookup fails or column doesn't exist
+    }
 
     logger.info(`Submitting record in Airtable for user ID: ${payload.userId}, Submission ID: ${payload.submissionId}`);
     logger.info(`Airtable write target table: "${config.airtable.submissionsTable}", fields: ${JSON.stringify(Object.keys(fields))}`);
