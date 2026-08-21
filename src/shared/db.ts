@@ -219,6 +219,15 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE submissions ADD COLUMN flagged_by_manager_id TEXT;
       ALTER TABLE submissions ADD COLUMN rejection_note TEXT;
     `
+  },
+  {
+    name: '006_purge_legacy_test_data',
+    pgSql: `
+      DELETE FROM submissions WHERE id < 'SUB-000084';
+    `,
+    sqliteSql: `
+      DELETE FROM submissions WHERE id < 'SUB-000084';
+    `
   }
 ];
 

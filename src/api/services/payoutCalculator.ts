@@ -129,6 +129,12 @@ export async function calculatePayouts(): Promise<PayoutResult> {
       logger.info(`Creator ${record.id} (${creatorName}): Rate = $${rate}/mil`);
     }
 
+    // Load local DB submissions to resolve clip_type if Clip Type column is missing in Airtable
+    const { query: dbQuery } = require('../../shared/db.js');
+    const localDbSubmissions = await dbQuery('SELECT id, clip_type FROM submissions').catch(() => []);
+    const localClipTypeMap = new Map<string, string>();
+    localDbSubmissions.forEach((s: any) => localClipTypeMap.set(s.id, s.clip_type));
+
     const updates: { id: string; fields: any }[] = [];
 
     for (const record of submissions) {
@@ -160,18 +166,12 @@ export async function calculatePayouts(): Promise<PayoutResult> {
 
         const ratePerMillion = rateMap.get(creatorLinks[0]) || 0;
         const platform = f['Platform'] as string || 'YouTube';
-        const clipType = f['Clip Type'] as string;
+        const clipType = (f['Clip Type'] as string) || localClipTypeMap.get(subId) || 'Raw';
         const isAMOwnClip = f["Is AM's Own Clip"] === true;
         const editorLinks = f['Editor'] as string[];
         const clipperLinks = f['Clipper'] as string[];
         const hasEditor = !!(editorLinks && editorLinks.length > 0);
         const hasClipper = !!(clipperLinks && clipperLinks.length > 0);
-
-        if (!clipType) {
-          logger.warn(`Skipping submission ${subId}: Clip Type is missing.`);
-          result.skippedNoClipType++;
-          continue;
-        }
 
         logger.info(`Processing ${subId}: Views=${views}, Creator=${creatorLinks[0]}, Rate=$${ratePerMillion}/mil, ClipType=${clipType}, Platform=${platform}`);
 

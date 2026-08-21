@@ -220,14 +220,15 @@ export class AirtableService {
       'Video URL': videoFileUrl,
     };
 
-    // Attempt to link Clipper if the user's Discord ID is matched in Team Members
+    // Auto-create or find Team Member by Discord ID and link to Clipper column
     try {
-      const member = await this.getTeamMemberByDiscordId(payload.userId);
+      const uName = payload.displayName || payload.discordUser || 'Clipper';
+      const member = await this.findOrCreateTeamMemberByDiscordId(payload.userId, uName);
       if (member?.id) {
         fields['Clipper'] = [member.id];
       }
-    } catch {
-      // Ignore if Clipper lookup fails or column doesn't exist
+    } catch (err: any) {
+      logger.warn(`Could not link Clipper for submission ${payload.submissionId}: ${err.message}`);
     }
 
     logger.info(`Submitting record in Airtable for user ID: ${payload.userId}, Submission ID: ${payload.submissionId}`);
@@ -609,6 +610,64 @@ export class AirtableService {
     } catch (err: any) {
       // Gracefully handle missing Discord User ID column in Team Members table
       logger.info(`Team Member lookup by Discord User ID skipped for ${discordUserId}`);
+      return null;
+    }
+  }
+
+  /**
+   * Finds an existing Team Member by Discord User ID, or creates a new row in Team Members table if missing.
+   */
+  static async findOrCreateTeamMemberByDiscordId(discordUserId: string, name: string): Promise<{ id: string; name: string } | null> {
+    if (config.mockAirtable) {
+      return null;
+    }
+
+    const existing = await this.getTeamMemberByDiscordId(discordUserId);
+    if (existing) {
+      return existing;
+    }
+
+    logger.info(`Team Member with Discord User ID ${discordUserId} not found in Airtable. Creating new record...`);
+    try {
+      const base = this.getBase();
+      const fields: Record<string, any> = {
+        'Name': name,
+        'Discord User ID': discordUserId,
+        'Role': 'Clipper'
+      };
+
+      const createOp = () => new Promise<{ id: string; name: string }>((resolve, reject) => {
+        base(config.airtable.teamMembersTable).create([{ fields }], (err: any, records: any) => {
+          if (err) {
+            // Handle unknown fields by falling back to basic fields (Name + Discord User ID)
+            const retryFields: Record<string, any> = { 'Name': name, 'Discord User ID': discordUserId };
+            base(config.airtable.teamMembersTable).create([{ fields: retryFields }], (err2: any, records2: any) => {
+              if (err2) {
+                // Final fallback if Discord User ID column is completely absent
+                base(config.airtable.teamMembersTable).create([{ fields: { 'Name': name } }], (err3: any, records3: any) => {
+                  if (err3) reject(err3);
+                  else if (!records3 || records3.length === 0) reject(new Error('Record create returned empty'));
+                  else resolve({ id: records3[0].id, name });
+                });
+              } else if (!records2 || records2.length === 0) {
+                reject(new Error('Record create returned empty'));
+              } else {
+                resolve({ id: records2[0].id, name });
+              }
+            });
+          } else if (!records || records.length === 0) {
+            reject(new Error('Record create returned empty'));
+          } else {
+            resolve({ id: records[0].id, name });
+          }
+        });
+      });
+
+      const newMember = await this.executeWithRetry(createOp);
+      logger.info(`Created new Team Member in Airtable: ${name} (ID: ${newMember.id})`);
+      return newMember;
+    } catch (err: any) {
+      logger.error(`Failed to create Team Member record in Airtable for ${discordUserId}:`, err.message);
       return null;
     }
   }
