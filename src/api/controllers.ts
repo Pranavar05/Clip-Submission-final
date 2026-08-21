@@ -194,8 +194,8 @@ export async function handleWebSubmissionInit(req: Request, res: Response): Prom
 
       // 3. Insert record in database with status CREATED
       await clientQuery(
-        `INSERT INTO submissions (id, token, user_id, discord_username, creator_id, clip_type, description, bucket, object_key, status, server_id, channel_id, submitted_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        `INSERT INTO submissions (id, token, user_id, discord_username, creator_id, clip_type, description, bucket, object_key, status, server_id, channel_id, editor_id, collaborator_role, submitted_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           submissionId,
           tokenPayload.tokenId,
@@ -209,6 +209,8 @@ export async function handleWebSubmissionInit(req: Request, res: Response): Prom
           'CREATED',
           tokenPayload.serverId,
           tokenPayload.channelId,
+          editorId || null,
+          collaboratorRole || null,
           new Date(),
           new Date()
         ]
@@ -432,6 +434,8 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
           userId: tokenRow.user_id,
           creatorId: submission.creator_id,
           clipType: submission.clip_type,
+          editorId: submission.editor_id || undefined,
+          collaboratorRole: submission.collaborator_role || undefined,
           description: submission.description,
           submittedAt: submission.submitted_at,
           serverId: tokenRow.server_id,
@@ -582,6 +586,8 @@ export async function handleDirectUploadComplete(req: Request, res: Response): P
       userId: sub.t_user_id,
       creatorId: sub.creator_id,
       clipType: sub.clip_type,
+      editorId: sub.editor_id || undefined,
+      collaboratorRole: sub.collaborator_role || undefined,
       description: sub.description,
       submittedAt: sub.submitted_at,
       serverId: sub.server_id,

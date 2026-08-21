@@ -228,6 +228,17 @@ const MIGRATIONS: Migration[] = [
     sqliteSql: `
       DELETE FROM submissions WHERE id < 'SUB-000084';
     `
+  },
+  {
+    name: '007_editor_collaborator',
+    pgSql: `
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS editor_id VARCHAR(255);
+      ALTER TABLE submissions ADD COLUMN IF NOT EXISTS collaborator_role VARCHAR(50);
+    `,
+    sqliteSql: `
+      ALTER TABLE submissions ADD COLUMN editor_id TEXT;
+      ALTER TABLE submissions ADD COLUMN collaborator_role TEXT;
+    `
   }
 ];
 
