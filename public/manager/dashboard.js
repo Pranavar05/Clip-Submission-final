@@ -330,12 +330,18 @@
       if (queueTitle) queueTitle.textContent = 'Active Submissions Queue';
       if (queueDesc) queueDesc.textContent = 'Review pending video clips and approve them for views tracking';
     } else {
-      const typeLabel = currentFilter.charAt(0).toUpperCase() + currentFilter.slice(1);
-      if (queueTitle) queueTitle.textContent = `${typeLabel} Submissions Queue`;
-      if (queueDesc) queueDesc.textContent = `Review pending ${currentFilter.toLowerCase()} clips and approve them for views tracking`;
+      if (queueTitle) queueTitle.textContent = `${currentFilter} Submissions Queue`;
+      if (queueDesc) queueDesc.textContent = `Review pending ${currentFilter} clips and approve them for views tracking`;
 
       filtered = allSubmissions.filter(sub => {
-        return sub.clipType && sub.clipType.toLowerCase() === currentFilter.toLowerCase();
+        if (!sub.clipType) return false;
+        const sType = sub.clipType.toLowerCase();
+        const fType = currentFilter.toLowerCase();
+        if (sType === fType) return true;
+        if (fType === 'raw + edited' && (sType.includes('raw') || sType.includes('+'))) return true;
+        if (fType === 'original-edited' && (sType === 'edited' || sType.includes('original'))) return true;
+        if (fType === 'ripped + edited' && (sType === 'stolen' || sType.includes('rip'))) return true;
+        return false;
       });
     }
     renderSubmissions(filtered);

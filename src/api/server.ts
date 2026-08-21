@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import * as Sentry from '@sentry/node';
 import router from './routes.js';
 import { setupDashboards } from './dashboards.js';
+import { handleMetrics } from './monitoring.js';
 import { config } from '../shared/config.js';
 import { logger } from '../shared/logger.js';
 
@@ -67,6 +68,9 @@ export function createApiServer(): Express {
 
   // Mount routes
   app.use('/api', router);
+
+  // Expose Prometheus Metrics Endpoint
+  app.get('/metrics', handleMetrics);
 
   // Setup Queue Dashboard
   setupDashboards(app);
