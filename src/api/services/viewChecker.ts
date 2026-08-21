@@ -33,13 +33,19 @@ export function extractTikTokVideoId(url: string): string | null {
 }
 
 // Detect platform from URL
-export function detectPlatform(url: string): 'YouTube' | 'TikTok' | null {
+export function detectPlatform(url: string): 'YouTube' | 'TikTok' | 'Instagram' | 'X' | null {
   const lowerUrl = url.toLowerCase();
   if (lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be')) {
     return 'YouTube';
   }
   if (lowerUrl.includes('tiktok.com')) {
     return 'TikTok';
+  }
+  if (lowerUrl.includes('instagram.com') || lowerUrl.includes('instagr.am')) {
+    return 'Instagram';
+  }
+  if (lowerUrl.includes('twitter.com') || lowerUrl.includes('x.com')) {
+    return 'X';
   }
   return null;
 }
@@ -148,43 +154,38 @@ export async function checkAndUpdateViews(): Promise<PayoutResult | false> {
       if (!postedUrl || typeof postedUrl !== 'string') continue;
 
       const platform = detectPlatform(postedUrl);
+      const updateFields: Record<string, any> = {};
+
+      // Auto-set Platform in Airtable if detected and not already set
+      if (platform && f['Platform'] !== platform) {
+        updateFields['Platform'] = platform;
+      }
+
       if (platform === 'YouTube') {
         const videoId = extractYouTubeVideoId(postedUrl);
         if (!videoId) {
           logger.warn(`Could not extract video ID from YouTube link: ${postedUrl}`);
-          continue;
-        }
+        } else {
+          const viewCount = await fetchYouTubeViews(videoId);
+          if (viewCount !== null) {
+            logger.info(`YouTube Video ${videoId} has ${viewCount} views`);
+            updateFields['Views'] = viewCount;
 
-        const viewCount = await fetchYouTubeViews(videoId);
-        if (viewCount !== null) {
-          logger.info(`YouTube Video ${videoId} has ${viewCount} views`);
-          
-          // Add to Airtable updates list
-          airtableUpdates.push({
-            id: record.id,
-            fields: { 'Views': viewCount }
-          });
-
-          // Add to local DB sync list if it exists in local submissions
-          const subId = f['Submission ID'] as string;
-          if (subId && localIds.has(subId)) {
-            dbUpdates.push({ id: subId, views: viewCount });
+            const subId = f['Submission ID'] as string;
+            if (subId && localIds.has(subId)) {
+              dbUpdates.push({ id: subId, views: viewCount });
+            }
           }
         }
       } else if (platform === 'TikTok') {
         const tiktokVideoId = extractTikTokVideoId(postedUrl);
 
         if (tiktokVideoId && tiktokUserId) {
-          // Fetch views from TikTok API using a connected user's token
           try {
             const viewCount = await TikTokService.fetchVideoViews(tiktokVideoId, tiktokUserId);
             if (viewCount !== null) {
               logger.info(`TikTok Video ${tiktokVideoId} has ${viewCount} views`);
-
-              airtableUpdates.push({
-                id: record.id,
-                fields: { 'Views': viewCount }
-              });
+              updateFields['Views'] = viewCount;
 
               const subId = f['Submission ID'] as string;
               if (subId && localIds.has(subId)) {
@@ -195,13 +196,26 @@ export async function checkAndUpdateViews(): Promise<PayoutResult | false> {
             logger.warn(`TikTok view fetch failed for ${tiktokVideoId}: ${err.message}`);
           }
         } else {
-          // No TikTok API connection — sync whatever Views number already exists in Airtable to our local DB
           const subId = f['Submission ID'] as string;
           const currentViews = f['Views'] as number;
           if (subId && typeof currentViews === 'number' && localIds.has(subId)) {
             dbUpdates.push({ id: subId, views: currentViews });
           }
         }
+      } else if (platform === 'Instagram' || platform === 'X') {
+        // Platform is recognized and will be written to Airtable
+        const subId = f['Submission ID'] as string;
+        const currentViews = f['Views'] as number;
+        if (subId && typeof currentViews === 'number' && localIds.has(subId)) {
+          dbUpdates.push({ id: subId, views: currentViews });
+        }
+      }
+
+      if (Object.keys(updateFields).length > 0) {
+        airtableUpdates.push({
+          id: record.id,
+          fields: updateFields
+        });
       }
     }
 
