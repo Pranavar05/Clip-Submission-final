@@ -64,8 +64,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.redirectUrl) {
           redirectUrl = data.redirectUrl;
         }
-        // Proceed to load creator options
+        // Proceed to load creator and team member options
         loadCreators();
+        loadTeamMembers();
       } else {
         showGlobalError('Link Expired or Invalid', data.message || 'The token is invalid.');
       }
@@ -83,7 +84,6 @@ document.addEventListener('DOMContentLoaded', () => {
       })
       .then(data => {
         if (data.success && data.creators) {
-          // Clear current options (except header)
           creatorSelect.innerHTML = '<option value="" disabled selected>-- Select Creator --</option>';
           data.creators.forEach(c => {
             const opt = document.createElement('option');
@@ -92,7 +92,6 @@ document.addEventListener('DOMContentLoaded', () => {
             creatorSelect.appendChild(opt);
           });
           
-          // Switch UI view to Form
           sessionLoader.classList.add('hidden');
           portalForm.classList.remove('hidden');
         } else {
@@ -101,6 +100,30 @@ document.addEventListener('DOMContentLoaded', () => {
       })
       .catch(err => {
         showGlobalError('Data Load Error', 'A database connectivity issue prevented loading page configurations.');
+      });
+  }
+
+  // Fetch team members dropdown dynamically for collaborator selection
+  const editorSelect = document.getElementById('editor-id');
+  const collaboratorGroup = document.getElementById('collaborator-group');
+
+  function loadTeamMembers() {
+    if (!editorSelect) return;
+    fetch('/api/team-members')
+      .then(response => response.json())
+      .then(data => {
+        if (data.success && data.teamMembers) {
+          editorSelect.innerHTML = '<option value="" selected>-- Select Team Member --</option>';
+          data.teamMembers.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = `${m.name}${m.role ? ' (' + m.role + ')' : ''}`;
+            editorSelect.appendChild(opt);
+          });
+        }
+      })
+      .catch(() => {
+        if (editorSelect) editorSelect.innerHTML = '<option value="">(No team members loaded)</option>';
       });
   }
 
@@ -175,7 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   removeFileBtn.addEventListener('click', (e) => {
-    e.stopPropagation(); // Prevent trigger click on parent dropZone
+    e.stopPropagation();
     selectedFile = null;
     fileInput.value = '';
     
@@ -221,9 +244,16 @@ document.addEventListener('DOMContentLoaded', () => {
     fileError.classList.add('hidden');
   }
 
-  // 4. Form inputs validations
+  // 4. Form inputs validations & Collaborator field toggle
   clipTypeSelect.addEventListener('change', () => {
     if (clipTypeSelect.value) typeError.classList.add('hidden');
+    if (collaboratorGroup) {
+      if (clipTypeSelect.value === 'Raw + Edited') {
+        collaboratorGroup.classList.remove('hidden');
+      } else {
+        collaboratorGroup.classList.add('hidden');
+      }
+    }
     validateForm();
   });
 
@@ -262,6 +292,8 @@ document.addEventListener('DOMContentLoaded', () => {
     uploadOverlay.classList.remove('hidden');
     submitBtn.disabled = true;
 
+    const collaboratorRoleSelect = document.getElementById('collaborator-role');
+
     // Step 1: Initiate metadata submission
     fetch('/api/web-submissions/init', {
       method: 'POST',
@@ -272,6 +304,8 @@ document.addEventListener('DOMContentLoaded', () => {
       body: JSON.stringify({
         clipType: clipTypeSelect.value,
         creatorId: creatorSelect.value,
+        editorId: (editorSelect && editorSelect.value) ? editorSelect.value : undefined,
+        collaboratorRole: (collaboratorRoleSelect && collaboratorRoleSelect.value) ? collaboratorRoleSelect.value : undefined,
         description: descriptionTextarea.value
       })
     })

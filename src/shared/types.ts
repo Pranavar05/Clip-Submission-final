@@ -7,6 +7,8 @@ export interface SubmissionPayload {
   userId: string;
   creatorId: string;    // Selected creator record ID in Airtable
   clipType: ClipType;
+  editorId?: string;    // Selected editor/collaborator record ID in Airtable Team Members
+  collaboratorRole?: 'Editor' | 'Sourcer';
   description?: string;
   submittedAt: string;
   serverId: string;

@@ -84,6 +84,21 @@
           <span id="type-error" class="error-text hidden">Please select a clip type.</span>
         </div>
 
+        <!-- Collaborator Selection (Shown for Raw + Edited) -->
+        <div id="collaborator-group" class="form-group hidden">
+          <label for="editor-id" class="field-label">Collaborator <span class="optional">(Team Member)</span></label>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <select id="editor-id" name="editorId" style="flex: 2; min-width: 180px;">
+              <option value="" disabled selected>Loading team members...</option>
+            </select>
+            <select id="collaborator-role" name="collaboratorRole" style="flex: 1; min-width: 130px;">
+              <option value="Editor">Is the Editor</option>
+              <option value="Sourcer">Is the Sourcer</option>
+            </select>
+          </div>
+          <span class="help-text" style="font-size: 0.8em; opacity: 0.7; margin-top: 4px; display: block;">Select the team member who collaborated on this clip.</span>
+        </div>
+
         <!-- Description Note -->
         <div class="form-group">
           <label for="description" class="field-label">Description / Notes <span class="optional">(Optional)</span></label>

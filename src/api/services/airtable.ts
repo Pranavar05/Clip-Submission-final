@@ -231,6 +231,11 @@ export class AirtableService {
       logger.warn(`Could not link Clipper for submission ${payload.submissionId}: ${err.message}`);
     }
 
+    // Link Editor if provided in Raw + Edited submissions
+    if (payload.editorId) {
+      fields['Editor'] = [payload.editorId];
+    }
+
     logger.info(`Submitting record in Airtable for user ID: ${payload.userId}, Submission ID: ${payload.submissionId}`);
     logger.info(`Airtable write target table: "${config.airtable.submissionsTable}", fields: ${JSON.stringify(Object.keys(fields))}`);
 
@@ -666,6 +671,44 @@ export class AirtableService {
     } catch (err: any) {
       logger.error(`Failed to create Team Member record in Airtable for ${discordUserId}:`, err.message);
       return null;
+    }
+  }
+
+  /**
+   * Fetches list of all Team Members for collaborator selection in upload portal.
+   */
+  static async getTeamMembersList(): Promise<{ id: string; name: string; role?: string }[]> {
+    if (config.mockAirtable) {
+      return [
+        { id: 'recMock1', name: 'Liam Martinez', role: 'Editor' },
+        { id: 'recMock2', name: 'Alice Johnson', role: 'Clipper' }
+      ];
+    }
+    try {
+      const base = this.getBase();
+      const fetchOp = () => new Promise<{ id: string; name: string; role?: string }[]>((resolve, reject) => {
+        const records: { id: string; name: string; role?: string }[] = [];
+        base(config.airtable.teamMembersTable)
+          .select({ pageSize: 100 })
+          .eachPage(
+            (pageRecords, fetchNextPage) => {
+              pageRecords.forEach(rec => {
+                const name = rec.get('Name') as string;
+                const role = rec.get('Role') as string;
+                if (name) records.push({ id: rec.id, name, role });
+              });
+              fetchNextPage();
+            },
+            (err) => {
+              if (err) reject(err);
+              else resolve(records);
+            }
+          );
+      });
+      return await this.executeWithRetry(fetchOp);
+    } catch (err: any) {
+      logger.error('Failed to fetch Team Members list:', err.message);
+      return [];
     }
   }
 

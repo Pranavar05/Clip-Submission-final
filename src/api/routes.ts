@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { handlePortalSession, handleWebSubmissionInit, handleWebSubmissionUpload, handleCreators } from './controllers.js';
+import { handlePortalSession, handleWebSubmissionInit, handleWebSubmissionUpload, handleCreators, handleTeamMembers } from './controllers.js';
 import { handleIncrementView, handleGetStats, handleGetLeaderboard } from './viewController.js';
 import { handleManagerLogin, handleGetManagerSubmissions, handleReviewSubmission, handleFlagSubmission } from './managerController.js';
 import { config } from '../shared/config.js';
@@ -47,6 +47,9 @@ router.get('/portal-session', ipRateLimiter, handlePortalSession);
 
 // Fetch active creators list
 router.get('/creators', handleCreators);
+
+// Fetch team members list for collaborator dropdown
+router.get('/team-members', handleTeamMembers);
 
 // Web Portal submission (uses custom Busboy parser instead of Multer memory storage)
 // Web Portal submission initiation

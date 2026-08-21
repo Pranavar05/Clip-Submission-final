@@ -93,6 +93,17 @@ export async function handleCreators(req: Request, res: Response, next: NextFunc
   }
 }
 
+export async function handleTeamMembers(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const requestId = (req as any).requestId || 'unknown';
+  try {
+    const teamMembers = await AirtableService.getTeamMembersList();
+    res.status(200).json({ success: true, teamMembers });
+  } catch (err: any) {
+    logger.error('Failed to get team members list in controller:', { error: err.message, requestId });
+    res.status(500).json({ success: false, message: 'Failed to retrieve team members.', requestId });
+  }
+}
+
 // ─── Portal Session Validation ────────────────────────────────────────────
 export async function handlePortalSession(req: Request, res: Response): Promise<void> {
   const token = req.query.token as string;
@@ -143,10 +154,10 @@ export async function handleWebSubmissionInit(req: Request, res: Response): Prom
     const token = authHeader.split(' ')[1];
 
     // Enforce request validation ahead of processing
-    const { creatorId, clipType, description } = req.body;
-    const allowedTypes: ClipType[] = ['Raw', 'Edited', 'Stolen'];
-    if (!clipType || !allowedTypes.includes(clipType as ClipType)) {
-      res.status(400).json({ success: false, message: 'Please select a valid clip type (Raw, Edited, or Stolen).', requestId });
+    const { creatorId, clipType, editorId, collaboratorRole, description } = req.body;
+    const allowedTypes = ['Original-Edited', 'Raw + Edited', 'Ripped + Edited', 'Raw', 'Edited', 'Stolen'];
+    if (!clipType || !allowedTypes.includes(clipType)) {
+      res.status(400).json({ success: false, message: 'Please select a valid clip type.', requestId });
       return;
     }
 
