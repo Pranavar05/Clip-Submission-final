@@ -235,25 +235,5 @@ export class R2StorageService {
     });
     await client.send(command);
   }
-
-  /**
-   * Health check connectivity test for R2 bucket
-   */
-  static async testConnection(): Promise<boolean> {
-    if (config.mockStorage) {
-      logger.info('[MOCK STORAGE] Uptime connectivity check simulated - Success');
-      return true;
-    }
-
-    try {
-      const client = this.getClient();
-      const command = new HeadBucketCommand({ Bucket: config.r2.bucketName });
-      await client.send(command);
-      return true;
-    } catch (err) {
-      logger.error('R2 connectivity check failed:', err);
-      return false;
-    }
-  }
 }
 

@@ -12,7 +12,6 @@ import { ClipType, SubmissionPayload } from '../shared/types.js';
 import { sanitizeTextField, sanitizeFilename } from '../shared/sanitizer.js';
 import { query, generateSubmissionId, runTransaction } from '../shared/db.js';
 import { rateLimiter } from '../shared/rateLimiter.js';
-import { uploadCounter, uploadSizeHistogram } from './monitoring.js';
 
 // ─── Magic Byte validator Transform Stream ───────────────────────────────
 class MagicByteValidator extends Transform {
@@ -279,7 +278,6 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
     }
 
     const submission = submissions[0];
-    uploadCounter.inc({ status: 'attempt', type: submission.clip_type || 'unknown' });
     if (submission.status !== 'CREATED') {
       res.status(400).json({ success: false, message: `Submission is in invalid state: ${submission.status}`, requestId });
       return;
@@ -354,7 +352,6 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
     busboy.on('finish', async () => {
       try {
         if (isUploadAborted) {
-          uploadCounter.inc({ status: 'failed', type: submission.clip_type || 'unknown' });
           await runTransaction(async (clientQuery) => {
             await clientQuery("UPDATE submissions SET status = 'FAILED', updated_at = $1 WHERE id = $2", [new Date(), submissionId]);
             await clientQuery(
@@ -368,7 +365,6 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
         }
 
         if (!fileUploadPromise) {
-          uploadCounter.inc({ status: 'failed', type: submission.clip_type || 'unknown' });
           await runTransaction(async (clientQuery) => {
             await clientQuery("UPDATE submissions SET status = 'FAILED', updated_at = $1 WHERE id = $2", [new Date(), submissionId]);
             await clientQuery(
@@ -383,8 +379,6 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
 
         const uploadResult = await fileUploadPromise;
         logCtx.info(`R2 upload completed. Key: ${fileKey}`);
-        uploadCounter.inc({ status: 'success', type: submission.clip_type || 'unknown' });
-        uploadSizeHistogram.observe(uploadResult.sizeBytes);
 
         // Update database and write audit logs in a transaction
         await runTransaction(async (clientQuery) => {
@@ -477,7 +471,6 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
           submissionId
         });
       } catch (err: any) {
-        uploadCounter.inc({ status: 'failed', type: submission.clip_type || 'unknown' });
         logCtx.error(`Failed during upload completion: ${err.message}`, { stack: err.stack });
         await query('UPDATE submissions SET status = $1, updated_at = $2 WHERE id = $3', ['FAILED', new Date(), submissionId]);
         res.status(500).json({ success: false, message: err.message || 'Processing file failed.', requestId });
@@ -486,7 +479,6 @@ export async function handleWebSubmissionUpload(req: Request, res: Response): Pr
 
     req.pipe(busboy);
   } catch (error: any) {
-    uploadCounter.inc({ status: 'failed', type: 'unknown' });
     logCtx.error(`Upload error: ${error.message}`);
     res.status(500).json({ success: false, message: 'Upload process initialization failed.', requestId });
   }
@@ -619,12 +611,8 @@ export async function handleDirectUploadComplete(req: Request, res: Response): P
 
     await query('UPDATE submissions SET status = $1, updated_at = $2 WHERE id = $3', ['READY_FOR_REVIEW', new Date(), submissionId]);
 
-    uploadCounter.inc({ status: 'success', type: sub.clip_type || 'unknown' });
-    uploadSizeHistogram.observe(Number(sizeBytes));
-
     res.status(200).json({ success: true, message: 'Direct upload completed successfully.' });
   } catch (err: any) {
-    uploadCounter.inc({ status: 'failed', type: (sub && sub.clip_type) || 'unknown' });
     logCtx.error(`Failed to complete direct upload: ${err.message}`);
     res.status(500).json({ success: false, message: 'Failed to complete upload.', requestId });
   }

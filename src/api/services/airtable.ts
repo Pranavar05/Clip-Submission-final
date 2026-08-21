@@ -883,32 +883,4 @@ export class AirtableService {
       return emptySummary;
     }
   }
-
-
-  /**
-   * Runs a cheap query to verify database connectivity.
-   */
-  static async testConnection(): Promise<boolean> {
-    if (config.mockAirtable) {
-      logger.info('[MOCK AIRTABLE] Database connectivity check simulated - Success');
-      return true;
-    }
-
-    try {
-      const base = this.getBase();
-      const testOp = () => new Promise<boolean>((resolve, reject) => {
-        base(config.airtable.teamMembersTable)
-          .select({ maxRecords: 1 })
-          .firstPage((err, records) => {
-            if (err) reject(err);
-            else resolve(true);
-          });
-      });
-      return await this.executeWithRetry(testOp, 1);
-    } catch (err) {
-      logger.error('Airtable connectivity check failed:', err);
-      return false;
-    }
-  }
 }
-

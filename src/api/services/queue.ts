@@ -55,13 +55,6 @@ class SubmissionQueue {
     logger.info('BullMQ / Mock Queue recovery: No manual recovery required.');
   }
 
-  /**
-   * Returns dummy queue stats for health checks.
-   */
-  public getStats(): { pending: number; processing: number; completed: number; dlq: number } {
-    return { pending: 0, processing: 0, completed: 0, dlq: 0 };
-  }
-
   public get bullQueue(): Queue | null {
     return bullQueue;
   }

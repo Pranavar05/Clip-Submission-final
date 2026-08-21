@@ -5,7 +5,6 @@ import { getRedisClient, closeRedis } from './shared/redis.js';
 import { logger } from './shared/logger.js';
 import { client } from './bot/client.js';
 import { processAirtableSync, processDiscordNotify, NonRetryableError } from './shared/jobs.js';
-import { queueProcessingDuration } from './api/monitoring.js';
 
 async function bootstrap() {
   try {
@@ -38,7 +37,6 @@ async function bootstrap() {
         const { name, data } = job;
         logger.info(`Worker processing job: ${name} (ID: ${job.id})`);
         
-        const startTime = Date.now();
         try {
           if (name === 'airtable_sync') {
             await processAirtableSync(data);
@@ -47,11 +45,7 @@ async function bootstrap() {
           } else {
             logger.warn(`Worker received unknown job name: ${name}`);
           }
-          const duration = (Date.now() - startTime) / 1000;
-          queueProcessingDuration.observe({ job_name: name, status: 'success' }, duration);
         } catch (err: any) {
-          const duration = (Date.now() - startTime) / 1000;
-          queueProcessingDuration.observe({ job_name: name, status: 'failed' }, duration);
           if (err instanceof NonRetryableError || err.isNonRetryable) {
             logger.error(`Non-retryable unrecoverable error encountered in job ${name} (ID: ${job.id}): ${err.message}. Discarding job.`);
             await job.discard();
