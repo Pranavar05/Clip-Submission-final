@@ -353,34 +353,55 @@ export class AirtableService {
         return;
       }
 
-      // Manager column is a Single line text field — write the name directly as a string
-      const fields: Record<string, any> = {
-        'Queue Status': status,
-        'Manager': managerName
+      const fields: Record<string, any> = {};
+      if (postedUrl) fields['Posted URL'] = postedUrl;
+      if (platform) fields['Platform'] = platform;
+      if (note) fields['Note'] = note;
+
+      // Link Account Manager if found in Team Members table
+      try {
+        const teamMembers = await this.getTeamMembersList();
+        const managerMember = teamMembers.find(m => m.name.toLowerCase() === managerName.toLowerCase());
+        if (managerMember) {
+          fields['Account Manager'] = [managerMember.id];
+        }
+      } catch (_) {}
+
+      const attemptUpdate = (fieldsToUpdate: Record<string, any>): Promise<void> => {
+        return new Promise<void>((resolve, reject) => {
+          base(config.airtable.submissionsTable).update(
+            [{ id: recordId, fields: fieldsToUpdate }],
+            async (err: any) => {
+              if (err) {
+                const unknownFieldMatch = err.message?.match(/Unknown field name:\s*"([^"]+)"/);
+                if (unknownFieldMatch) {
+                  const badField = unknownFieldMatch[1];
+                  logger.warn(`Airtable Submissions table is missing "${badField}" field during review update. Retrying without it...`);
+                  const stripped = { ...fieldsToUpdate };
+                  delete stripped[badField];
+                  if (Object.keys(stripped).length > 0) {
+                    try {
+                      await attemptUpdate(stripped);
+                      resolve();
+                    } catch (retryErr) {
+                      reject(retryErr);
+                    }
+                  } else {
+                    resolve();
+                  }
+                } else {
+                  reject(err);
+                }
+              } else {
+                resolve();
+              }
+            }
+          );
+        });
       };
 
-      if (note) {
-        fields['Note'] = note;
-      }
-      if (postedUrl) {
-        fields['Posted URL'] = postedUrl;
-      }
-      if (platform) {
-        fields['Platform'] = platform;
-      }
-
-      const updateOp = () => new Promise<void>((resolve, reject) => {
-        base(config.airtable.submissionsTable).update(
-          [{ id: recordId, fields }],
-          (err: any) => {
-            if (err) reject(err);
-            else resolve();
-          }
-        );
-      });
-
-      await this.executeWithRetry(updateOp);
-      logger.info(`Successfully updated review status in Airtable for Submission ID: ${submissionId} to ${status} by ${managerName}`);
+      await this.executeWithRetry(() => attemptUpdate(fields));
+      logger.info(`Successfully updated review status in Airtable for Submission ID: ${submissionId} (Posted URL: ${postedUrl || 'none'}, Platform: ${platform || 'none'}) by ${managerName}`);
     } catch (error: any) {
       logger.error(`Failed to update review status in Airtable for Submission ID ${submissionId}:`, error);
     }
