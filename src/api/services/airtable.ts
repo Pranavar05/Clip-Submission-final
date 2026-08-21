@@ -97,33 +97,19 @@ export class AirtableService {
 
     try {
       const base = this.getBase();
-      let activeCreators: { id: string; name: string }[] = [];
-
       logger.info(`Attempting to fetch creators from ${config.airtable.creatorsTable} table...`);
-      const fetchCreatorsOp = () => new Promise<{ id: string; name: string }[]>((resolve, reject) => {
+      const fetchCreatorsOp = async () => {
+        const pageRecords = await base(config.airtable.creatorsTable).select({ pageSize: 100 }).all();
         const records: { id: string; name: string }[] = [];
-        base(config.airtable.creatorsTable)
-          .select({
-            // Fetch if Status is not Inactive (includes empty/blank and Active)
-            filterByFormula: `NOT({Status} = 'Inactive')`,
-            fields: ['Streamer/Creator', 'Campaign Name']
-          })
-          .eachPage(
-            (pageRecords, fetchNextPage) => {
-              pageRecords.forEach(rec => {
-                const name = (rec.get('Streamer/Creator') || rec.get('Campaign Name')) as string;
-                if (name) records.push({ id: rec.id, name });
-              });
-              fetchNextPage();
-            },
-            (err) => {
-              if (err) reject(err);
-              else resolve(records);
-            }
-          );
-      });
+        pageRecords.forEach(rec => {
+          const name = (rec.get('Streamer/Creator') || rec.get('Campaign Name') || rec.get('Name')) as string;
+          const status = rec.get('Status') as string;
+          if (name && status !== 'Inactive') records.push({ id: rec.id, name });
+        });
+        return records;
+      };
 
-      activeCreators = await this.executeWithRetry(fetchCreatorsOp);
+      const activeCreators = await this.executeWithRetry(fetchCreatorsOp);
       logger.info(`Fetched ${activeCreators.length} creators from ${config.airtable.creatorsTable} table.`);
 
       // Sync fetched creators to local database to satisfy foreign key constraints
@@ -218,6 +204,7 @@ export class AirtableService {
       'Submission ID': payload.submissionId,
       'Creator': [payload.creatorId],
       'Video URL': videoFileUrl,
+      'Clip Type': payload.clipType,
     };
 
     // Auto-create or find Team Member by Discord ID and link to Clipper column
@@ -555,30 +542,20 @@ export class AirtableService {
 
     try {
       const base = this.getBase();
-      const records: { id: string; name: string; rate: number; status: string }[] = [];
-
       logger.info(`Fetching active campaigns and rates from ${config.airtable.creatorsTable} table...`);
-      const fetchOp = () => new Promise<{ id: string; name: string; rate: number; status: string }[]>((resolve, reject) => {
-        base(config.airtable.creatorsTable)
-          .select({ pageSize: 100 })
-          .eachPage(
-            (pageRecords, fetchNextPage) => {
-              pageRecords.forEach(rec => {
-                const name = (rec.get('Streamer/Creator') || rec.get('Campaign Name') || rec.get('Name')) as string;
-                const rate = rec.get('Rate Per Million ($)') as number || 0;
-                const status = (rec.get('Status') as string) || 'Active';
-                if (name && status !== 'Inactive') {
-                  records.push({ id: rec.id, name, rate, status });
-                }
-              });
-              fetchNextPage();
-            },
-            (err) => {
-              if (err) reject(err);
-              else resolve(records);
-            }
-          );
-      });
+      const fetchOp = async () => {
+        const pageRecords = await base(config.airtable.creatorsTable).select({ pageSize: 100 }).all();
+        const records: { id: string; name: string; rate: number; status: string }[] = [];
+        pageRecords.forEach(rec => {
+          const name = (rec.get('Streamer/Creator') || rec.get('Campaign Name') || rec.get('Name')) as string;
+          const rate = rec.get('Rate Per Million ($)') as number || 0;
+          const status = (rec.get('Status') as string) || 'Active';
+          if (name && status !== 'Inactive') {
+            records.push({ id: rec.id, name, rate, status });
+          }
+        });
+        return records;
+      };
 
       return await this.executeWithRetry(fetchOp);
     } catch (error: any) {
@@ -686,25 +663,16 @@ export class AirtableService {
     }
     try {
       const base = this.getBase();
-      const fetchOp = () => new Promise<{ id: string; name: string; role?: string }[]>((resolve, reject) => {
+      const fetchOp = async () => {
+        const pageRecords = await base(config.airtable.teamMembersTable).select({ pageSize: 100 }).all();
         const records: { id: string; name: string; role?: string }[] = [];
-        base(config.airtable.teamMembersTable)
-          .select({ pageSize: 100 })
-          .eachPage(
-            (pageRecords, fetchNextPage) => {
-              pageRecords.forEach(rec => {
-                const name = rec.get('Name') as string;
-                const role = rec.get('Role') as string;
-                if (name) records.push({ id: rec.id, name, role });
-              });
-              fetchNextPage();
-            },
-            (err) => {
-              if (err) reject(err);
-              else resolve(records);
-            }
-          );
-      });
+        pageRecords.forEach(rec => {
+          const name = rec.get('Name') as string;
+          const role = rec.get('Role') as string;
+          if (name) records.push({ id: rec.id, name, role });
+        });
+        return records;
+      };
       return await this.executeWithRetry(fetchOp);
     } catch (err: any) {
       logger.error('Failed to fetch Team Members list:', err.message);
