@@ -540,34 +540,31 @@ export class AirtableService {
   }
 
   /**
-   * Fetches active campaigns/creators with their rates and status.
+   * Fetches active campaigns/creators with their rates and status from Creators table.
    */
   static async getActiveCampaignsWithRates(): Promise<{ id: string; name: string; rate: number; status: string }[]> {
     if (config.mockAirtable) {
-      logger.info('[MOCK AIRTABLE] Fetching active campaigns with rates');
-      const rows = await query('SELECT id, name FROM creators WHERE active = true OR active = 1');
+      const rows = await query<any>('SELECT id, name FROM creators WHERE active = true OR active = 1');
       return rows.map(r => ({ id: r.id, name: r.name, rate: 150, status: 'Active' }));
     }
 
     try {
       const base = this.getBase();
-      let activeCampaigns: { id: string; name: string; rate: number; status: string }[] = [];
+      const records: { id: string; name: string; rate: number; status: string }[] = [];
 
       logger.info(`Fetching active campaigns and rates from ${config.airtable.creatorsTable} table...`);
       const fetchOp = () => new Promise<{ id: string; name: string; rate: number; status: string }[]>((resolve, reject) => {
-        const records: { id: string; name: string; rate: number; status: string }[] = [];
         base(config.airtable.creatorsTable)
-          .select({
-            filterByFormula: `NOT({Status} = 'Inactive')`,
-            fields: ['Streamer/Creator', 'Campaign Name', 'Rate Per Million ($)', 'Status']
-          })
+          .select({ pageSize: 100 })
           .eachPage(
             (pageRecords, fetchNextPage) => {
               pageRecords.forEach(rec => {
-                const name = (rec.get('Streamer/Creator') || rec.get('Campaign Name')) as string;
+                const name = (rec.get('Streamer/Creator') || rec.get('Campaign Name') || rec.get('Name')) as string;
                 const rate = rec.get('Rate Per Million ($)') as number || 0;
-                const status = rec.get('Status') as string || 'Active';
-                if (name) records.push({ id: rec.id, name, rate, status });
+                const status = (rec.get('Status') as string) || 'Active';
+                if (name && status !== 'Inactive') {
+                  records.push({ id: rec.id, name, rate, status });
+                }
               });
               fetchNextPage();
             },
@@ -578,11 +575,11 @@ export class AirtableService {
           );
       });
 
-      activeCampaigns = await this.executeWithRetry(fetchOp);
-      return activeCampaigns;
+      return await this.executeWithRetry(fetchOp);
     } catch (error: any) {
-      logger.error('Failed to fetch active campaigns with rates:', error?.message || error);
-      throw error;
+      logger.error('Failed to fetch active campaigns with rates from Airtable, falling back to database:', error?.message || error);
+      const rows = await query<any>('SELECT id, name FROM creators WHERE active = true OR active = 1').catch(() => []);
+      return rows.map(r => ({ id: r.id, name: r.name, rate: 150, status: 'Active' }));
     }
   }
 

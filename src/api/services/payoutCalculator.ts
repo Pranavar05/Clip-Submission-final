@@ -7,6 +7,18 @@ const payoutCalcEngine = require('../../../new-payout-cal/payout_calculator.js')
 
 let isCalculating = false;
 
+function normalizeClipType(rawType: string): string {
+  if (!rawType) return 'Original-Edited';
+  const c = rawType.trim();
+  if (c === 'Original-Edited' || c === 'Raw + Edited' || c === 'Ripped + Edited') {
+    return c;
+  }
+  if (c === 'Raw') return 'Raw + Edited';
+  if (c === 'Edited') return 'Original-Edited';
+  if (c === 'Stolen' || c === 'Ripped') return 'Ripped + Edited';
+  return 'Original-Edited';
+}
+
 // Initialize Airtable base
 function getBase(): Airtable.Base {
   if (!config.airtable.apiKey || !config.airtable.baseId) {
@@ -163,10 +175,10 @@ export async function calculatePayouts(): Promise<PayoutResult> {
           result.skippedNoCreator++;
           continue;
         }
-
         const ratePerMillion = rateMap.get(creatorLinks[0]) || 0;
         const platform = f['Platform'] as string || 'YouTube';
-        const clipType = (f['Clip Type'] as string) || localClipTypeMap.get(subId) || 'Raw';
+        const rawClipType = (f['Clip Type'] as string) || localClipTypeMap.get(subId) || 'Raw';
+        const clipType = normalizeClipType(rawClipType);
         const isAMOwnClip = f["Is AM's Own Clip"] === true;
         const editorLinks = f['Editor'] as string[];
         const clipperLinks = f['Clipper'] as string[];
