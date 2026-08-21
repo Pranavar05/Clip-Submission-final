@@ -69,10 +69,6 @@ router.post('/view/:id', handleIncrementView);
 router.get('/stats/:id', handleGetStats);
 router.get('/leaderboard', handleGetLeaderboard);
 
-// Prometheus Metrics
-import { handleMetrics } from './monitoring.js';
-router.get('/metrics', handleMetrics);
-
 // Health check endpoint (performs connections checks for Database, Airtable, R2, Discord client, and queue)
 router.get('/health', async (req: Request, res: Response) => {
   const diagnostics: Record<string, any> = {
