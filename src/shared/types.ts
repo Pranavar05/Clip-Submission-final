@@ -1,4 +1,4 @@
-export type ClipType = 'Raw' | 'Edited' | 'Stolen';
+export type ClipType = 'Original-Edited' | 'Raw + Edited' | 'Ripped + Edited' | 'Raw' | 'Edited' | 'Stolen';
 
 export interface SubmissionPayload {
   submissionId: string; // Client-supplied UUID for idempotency
