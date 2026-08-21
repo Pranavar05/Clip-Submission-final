@@ -45,6 +45,10 @@ document.addEventListener('DOMContentLoaded', () => {
     return;
   }
 
+  let currentUserName = '';
+  let currentDiscordUser = '';
+  let currentUserId = '';
+
   // Validate token session
   fetch(`/api/portal-session?token=${encodeURIComponent(token)}`)
     .then(response => {
@@ -58,6 +62,10 @@ document.addEventListener('DOMContentLoaded', () => {
     .then(data => {
       if (data.success) {
         displayNameSpan.textContent = data.displayName;
+        currentUserName = data.displayName || '';
+        currentDiscordUser = data.discordUser || '';
+        currentUserId = data.userId || '';
+
         if (data.expiresAt) {
           startCountdown(data.expiresAt);
         }
@@ -103,7 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
   }
 
-  // Fetch team members dropdown dynamically for collaborator selection
+  // Fetch team members dropdown dynamically for collaborator selection (excluding the submitter)
   const editorSelect = document.getElementById('editor-id');
   const collaboratorGroup = document.getElementById('collaborator-group');
 
@@ -114,7 +122,17 @@ document.addEventListener('DOMContentLoaded', () => {
       .then(data => {
         if (data.success && data.teamMembers) {
           editorSelect.innerHTML = '<option value="" selected>-- Select Team Member --</option>';
-          data.teamMembers.forEach(m => {
+          
+          const filtered = data.teamMembers.filter(m => {
+            const mName = (m.name || '').toLowerCase().trim();
+            const uDisplay = (currentUserName || '').toLowerCase().trim();
+            const uDiscord = (currentDiscordUser || '').toLowerCase().trim();
+            if (uDisplay && mName === uDisplay) return false;
+            if (uDiscord && mName === uDiscord) return false;
+            return true;
+          });
+
+          filtered.forEach(m => {
             const opt = document.createElement('option');
             opt.value = m.id;
             opt.textContent = `${m.name}${m.role ? ' (' + m.role + ')' : ''}`;

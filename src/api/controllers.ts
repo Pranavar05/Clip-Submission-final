@@ -129,6 +129,7 @@ export async function handlePortalSession(req: Request, res: Response): Promise<
 
   res.status(200).json({
     success: true,
+    userId: payload.userId,
     displayName: payload.displayName,
     discordUser: payload.discordUser,
     expiresAt: payload.expiresAt,
