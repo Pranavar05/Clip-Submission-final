@@ -208,19 +208,24 @@ export class AirtableService {
     };
 
     // Auto-create or find Team Member by Discord ID and link to Clipper column
+    const clipperIds: string[] = [];
     try {
       const uName = payload.displayName || payload.discordUser || 'Clipper';
       const member = await this.findOrCreateTeamMemberByDiscordId(payload.userId, uName);
       if (member?.id) {
-        fields['Clipper'] = [member.id];
+        clipperIds.push(member.id);
       }
     } catch (err: any) {
       logger.warn(`Could not link Clipper for submission ${payload.submissionId}: ${err.message}`);
     }
 
-    // Link Editor if provided in Raw + Edited submissions
-    if (payload.editorId) {
-      fields['Editor'] = [payload.editorId];
+    // Link collaborator into Clipper column as well (so both names appear in the same Clipper column!)
+    if (payload.editorId && !clipperIds.includes(payload.editorId)) {
+      clipperIds.push(payload.editorId);
+    }
+
+    if (clipperIds.length > 0) {
+      fields['Clipper'] = clipperIds;
     }
 
     logger.info(`Submitting record in Airtable for user ID: ${payload.userId}, Submission ID: ${payload.submissionId}`);

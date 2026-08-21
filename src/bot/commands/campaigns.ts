@@ -21,17 +21,24 @@ export async function executeCampaigns(interaction: ChatInputCommandInteraction)
       .setColor(0x2ecc71)
       .setTimestamp();
 
-    const campaignsList = campaigns.map((c) => {
-      const rateStr = c.rate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      return `• **${c.name}**\n  Rate per Million Views: **$${rateStr}**\n  Status: \`${c.status}\``;
-    }).join('\n\n');
+    // Chunk campaigns to never exceed Discord's 1024 character field limit
+    const CHUNK_SIZE = 5;
+    for (let i = 0; i < campaigns.length; i += CHUNK_SIZE) {
+      const chunk = campaigns.slice(i, i + CHUNK_SIZE);
+      const chunkText = chunk.map((c) => {
+        const rateStr = c.rate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return `• **${c.name}**\n  Rate per Million Views: **$${rateStr}**\n  Status: \`${c.status}\``;
+      }).join('\n\n');
 
-    embed.addFields({ name: '📢 Active Campaigns & Creators', value: campaignsList });
+      const fieldName = i === 0 ? '📢 Active Campaigns & Creators' : '📢 Active Campaigns (cont.)';
+      embed.addFields({ name: fieldName, value: chunkText });
+    }
+
     embed.setFooter({ text: 'Use the submission portal to upload clips for these creators.' });
 
     await interaction.editReply({ embeds: [embed] });
   } catch (err: any) {
-    logger.error('Failed to fetch active campaigns:', err.message);
+    logger.error('Failed to fetch active campaigns:', err.message || err);
     await interaction.editReply({ content: '❌ Failed to fetch active campaigns from Airtable. Please try again later.' });
   }
 }

@@ -8,7 +8,7 @@ const isDev = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
 
 // ─── Centralized Named Constants ─────────────────────────────────────────
 export const MAX_UPLOAD_SIZE = 200 * 1024 * 1024; // 200MB
-export const MAX_UPLOADS_PER_HOUR = 3;
+export const MAX_UPLOADS_PER_HOUR = parseInt(process.env.RATE_LIMIT_MAX_SUBMISSIONS || '50', 10);
 export const TOKEN_EXPIRY = 10 * 60 * 1000; // 10 minutes in ms
 export const SIGNED_URL_EXPIRY = 3600; // 1 hour in seconds
 export const WORKER_CONCURRENCY = 1;
